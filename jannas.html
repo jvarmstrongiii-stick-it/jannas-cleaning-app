@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Janna's Cleaning Service</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const APP_REV = 1;
+
+// ── Supabase config ──────────────────────────────────────────────
+// TODO: replace with the real project URL + anon key before deploying.
+const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const styles = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --ocean: #2E7D9E;
+    --ocean-light: #4FA8C9;
+    --ocean-pale: #E8F4F8;
+    --sand: #F5EFE0;
+    --sand-dark: #E8D9B8;
+    --foam: #FAFCFD;
+    --slate: #2C3E50;
+    --slate-mid: #5D7A8A;
+    --slate-light: #A8BECB;
+    --coral: #E07B5A;
+    --sage: #6BAF8A;
+    --font-display: 'Cormorant Garamond', serif;
+    --font-body: 'DM Sans', sans-serif;
+  }
+  body { font-family: var(--font-body); background: var(--foam); color: var(--slate); }
+  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* TOP HEADER */
+  .topbar {
+    padding: 14px 24px; background: var(--slate);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .brand-icon { font-size: 20px; }
+  .brand-name { font-family: var(--font-display); font-size: 22px; font-weight: 600; color: #fff; line-height: 1; }
+  .brand-sub { font-size: 10px; color: var(--slate-light); letter-spacing: 2px; text-transform: uppercase; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%; background: var(--ocean);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: #fff;
+  }
+
+  /* NAV BAR (under header) */
+  .navbar {
+    background: #fff; border-bottom: 1px solid #eef2f5;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; flex-shrink: 0; gap: 4px;
+  }
+  .nav-tabs { display: flex; gap: 2px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 7px; padding: 12px 16px;
+    cursor: pointer; font-size: 13px; font-weight: 500;
+    color: var(--slate-mid); border-bottom: 2px solid transparent;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .nav-item:hover { color: var(--ocean); }
+  .nav-item.active { color: var(--ocean); border-bottom-color: var(--ocean); }
+  .nav-icon { font-size: 15px; }
+  .page-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--slate); padding: 10px 0; }
+
+  /* MAIN */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .btn {
+    padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500;
+    transition: all 0.2s;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--ocean); color: #fff; }
+  .btn-primary:hover { background: var(--ocean-light); }
+  .btn-ghost { background: transparent; color: var(--slate-mid); border: 1px solid #dde3e8; }
+  .btn-ghost:hover { background: var(--ocean-pale); color: var(--ocean); border-color: var(--ocean-light); }
+  .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* NOTIFICATION */
+  .notif {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    background: var(--slate); color: #fff; padding: 12px 20px;
+    border-radius: 10px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
+
+  /* STATS */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .stat-card {
+    background: #fff; border-radius: 12px; padding: 18px;
+    border: 1px solid #eef2f5; position: relative; overflow: hidden;
+  }
+  .stat-card::after {
+    content: ''; position: absolute; top: -20px; right: -20px;
+    width: 80px; height: 80px; border-radius: 50%;
+    background: var(--accent, var(--ocean-pale)); opacity: 0.5;
+  }
+  .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--slate-mid); margin-bottom: 8px; }
+  .stat-value { font-family: var(--font-display); font-size: 36px; font-weight: 700; color: var(--slate); line-height: 1; }
+  .stat-sub { font-size: 11px; color: var(--slate-light); margin-top: 4px; }
+
+  /* CARDS */
+  .card { background: #fff; border-radius: 12px; border: 1px solid #eef2f5; overflow: hidden; margin-bottom: 16px; }
+  .card-header {
+    padding: 16px 20px; border-bottom: 1px solid #f0f4f6;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-title { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--slate); }
+  .card-body { padding: 0; }
+
+  /* BADGES */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500;
+  }
+  .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .badge-scheduled { background: #E8F4F8; color: #2E7D9E; }
+  .badge-completed { background: #E8F5EE; color: #2E7A4F; }
+  .badge-cancelled { background: #FEF0EC; color: #C0442A; }
+  .badge-pending { background: #FFF8EC; color: #B07A20; }
+  .badge-recurring { background: var(--sand); color: #8B6914; }
+
+  /* JOB ROWS */
+  .job-row {
+    padding: 14px 18px; border-bottom: 1px solid #f0f4f6;
+    display: flex; align-items: flex-start; gap: 12px;
+    transition: background 0.15s;
+  }
+  .job-row:hover { background: #fafcfe; }
+  .job-row:last-child { border-bottom: none; }
+  .job-info { flex: 1; min-width: 0; }
+  .job-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .job-client { font-size: 14px; font-weight: 600; color: var(--slate); }
+  .job-meta { font-size: 12px; color: var(--slate-mid); margin-bottom: 3px; }
+  .job-details { font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .job-time { color: var(--ocean); font-weight: 500; }
+  .job-type { color: var(--slate-mid); }
+  .job-actions { display: flex; gap: 6px; flex-shrink: 0; padding-top: 2px; }
+  .btn-icon {
+    background: var(--ocean-pale); border: none; cursor: pointer;
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; transition: all 0.2s; color: var(--ocean);
+  }
+  .btn-icon:hover { background: var(--ocean); color: #fff; }
+  .btn-icon.danger { background: #FEF0EC; color: var(--coral); }
+  .btn-icon.danger:hover { background: var(--coral); color: #fff; }
+
+  /* SEARCH & FILTERS */
+  .search-bar {
+    display: flex; gap: 10px; padding: 14px 18px;
+    border-bottom: 1px solid #f0f4f6; flex-wrap: wrap;
+  }
+  .search-input {
+    flex: 1; min-width: 180px; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid #dde3e8; font-family: var(--font-body); font-size: 13px;
+    color: var(--slate); outline: none; transition: border 0.2s;
+  }
+  .search-input:focus { border-color: var(--ocean-light); }
+  .filter-tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid #f0f4f6; }
+  .filter-tab {
+    padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;
+    cursor: pointer; border: 1px solid #dde3e8; color: var(--slate-mid);
+    background: transparent; transition: all 0.2s;
+  }
+  .filter-tab.active { background: var(--ocean); color: #fff; border-color: var(--ocean); }
+
+  /* SCHEDULE */
+  .schedule-day { margin-bottom: 20px; }
+  .day-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .day-label { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--slate); }
+  .day-line { flex: 1; height: 1px; background: #eef2f5; }
+  .day-count { font-size: 11px; color: var(--slate-light); }
+  .slot {
+    background: #fff; border-radius: 10px; border: 1px solid #eef2f5;
+    padding: 12px 16px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 14px;
+    transition: box-shadow 0.2s;
+  }
+  .slot:hover { box-shadow: 0 2px 12px rgba(46,125,158,0.1); }
+  .slot-time { font-size: 13px; font-weight: 600; color: var(--ocean); min-width: 60px; }
+  .slot-info { flex: 1; }
+  .slot-client { font-size: 14px; font-weight: 500; color: var(--slate); }
+  .slot-detail { font-size: 12px; color: var(--slate-mid); margin-top: 2px; }
+  .slot-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* CLIENTS */
+  .client-row {
+    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+    border-bottom: 1px solid #f0f4f6; transition: background 0.15s;
+  }
+  .client-row:hover { background: #fafcfe; }
+  .client-row:last-child { border-bottom: none; }
+  .client-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 600; color: #fff; flex-shrink: 0;
+  }
+  .client-name { font-size: 14px; font-weight: 600; color: var(--slate); }
+  .client-addr { font-size: 12px; color: var(--slate-mid); margin-top: 2px; }
+  .client-actions { display: flex; gap: 6px; margin-left: auto; }
+
+  /* NOTES */
+  .note-item {
+    border-radius: 10px; border: 1px solid #eef2f5;
+    border-left: 4px solid var(--ocean); background: #fff;
+  }
+  .note-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .note-client { font-weight: 600; font-size: 13px; color: var(--slate); }
+  .note-date { font-size: 11px; color: var(--slate-light); }
+  .note-text { font-size: 13px; color: var(--slate-mid); line-height: 1.5; }
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; padding: 20px;
+  }
+  .modal {
+    background: #fff; border-radius: 16px; width: 100%; max-width: 480px;
+    max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  }
+  .modal-header {
+    padding: 20px 24px 16px; border-bottom: 1px solid #eef2f5;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; cursor: pointer; font-size: 20px;
+    color: var(--slate-mid); line-height: 1; padding: 2px 6px; border-radius: 6px;
+  }
+  .modal-close:hover { background: #f0f4f6; }
+  .modal-body { padding: 20px 24px; }
+  .modal-footer { padding: 16px 24px; border-top: 1px solid #eef2f5; display: flex; gap: 10px; justify-content: flex-end; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-size: 12px; font-weight: 500; color: var(--slate-mid); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
+  .form-input, .form-select, .form-textarea {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    border: 1px solid #dde3e8; font-family: var(--font-body); font-size: 14px;
+    color: var(--slate); outline: none; transition: border 0.2s;
+    background: #fff;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--ocean-light); }
+  .form-textarea { resize: vertical; min-height: 80px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-hint { font-size: 11px; color: var(--slate-light); margin-top: 6px; }
+
+  /* EMPTY STATE */
+  .empty { text-align: center; padding: 48px 24px; color: var(--slate-light); }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; }
+  .empty-text { font-size: 14px; }
+
+  /* FOOTER */
+  .app-footer { text-align: center; padding: 8px; font-size: 10px; color: var(--slate-light); flex-shrink: 0; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--sand-dark); border-radius: 4px; }
+
+  @media (max-width: 600px) {
+    .content { padding: 16px; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .topbar { padding: 12px 16px; }
+    .nav-item { padding: 10px 10px; font-size: 12px; }
+    .nav-icon { font-size: 14px; }
+  }
+`;
+
+const SERVICE_TYPES = ["Standard Clean","Deep Clean","Move-In Clean","Move-Out Clean","Post-Construction","Window Cleaning"];
+const RECURRENCE = ["One-time","Weekly","Bi-weekly","Monthly"];
+const CLEANERS = ["Maria G.","Diane R.","Unassigned"];
+const STATUS_TABS = ["all","scheduled","pending","completed","cancelled"];
+const NEW_CLIENT_VALUE = "__new__";
+const PALETTE = ["#4FA8C9","#6BAF8A","#E07B5A","#9B7BC4","#E8A838","#5BA5A5"];
+const dotColor = { scheduled:"#2E7D9E", completed:"#2E7A4F", pending:"#B07A20", cancelled:"#C0442A" };
+
+const EMPTY_BOOK_FORM = {
+  client_id:"", newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:"",
+  address:"", type:"Standard Clean", recurring:"One-time",
+  date:"", time:"", cleaner:"Unassigned", notes:"", status:"scheduled"
+};
+const EMPTY_NOTE_FORM = {
+  client_id:"", newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:"", text:""
+};
+
+function fmtDate(d) {
+  if (!d) return "";
+  const dt = new Date(d + "T12:00:00");
+  return dt.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+}
+
+function colorFor(id) {
+  if (!id) return PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return PALETTE[Math.abs(hash) % PALETTE.length];
+}
+
+// Reusable client picker: select an existing client, or add a brand-new one
+// inline (no dedicated client-creation screen in v1).
+function ClientPicker({ clients, form, setForm, label }) {
+  const isNew = form.client_id === NEW_CLIENT_VALUE;
+  return (
+    <>
+      <div className="form-group">
+        <label className="form-label">{label || "Client"} *</label>
+        <select className="form-select" value={form.client_id}
+          onChange={e=>setForm(p=>({...p, client_id:e.target.value}))}>
+          <option value="">Select a client…</option>
+          {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          <option value={NEW_CLIENT_VALUE}>+ New client…</option>
+        </select>
+      </div>
+      {isNew && (
+        <>
+          <div className="form-group">
+            <label className="form-label">New Client Name *</label>
+            <input className="form-input" value={form.newClientName}
+              onChange={e=>setForm(p=>({...p, newClientName:e.target.value}))} placeholder="Full name" />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Phone</label>
+              <input className="form-input" value={form.newClientPhone}
+                onChange={e=>setForm(p=>({...p, newClientPhone:e.target.value}))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input className="form-input" value={form.newClientEmail}
+                onChange={e=>setForm(p=>({...p, newClientEmail:e.target.value}))} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Client Address</label>
+            <input className="form-input" value={form.newClientAddress}
+              onChange={e=>setForm(p=>({...p, newClientAddress:e.target.value}))} placeholder="Billing / primary address" />
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function JannasDashboard() {
+  const [activeNav, setActiveNav] = useState("dashboard");
+
+  const [loading, setLoading] = useState(true);
+  const [clients, setClients] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [notif, setNotif] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchQ, setSearchQ] = useState("");
+  const [showBookModal, setShowBookModal] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [editJob, setEditJob] = useState(null);
+
+  const [bookForm, setBookForm] = useState(EMPTY_BOOK_FORM);
+  const [noteForm, setNoteForm] = useState(EMPTY_NOTE_FORM);
+
+  useEffect(() => {
+    if (notif) { const t = setTimeout(() => setNotif(null), 3000); return () => clearTimeout(t); }
+  }, [notif]);
+
+  function showNotif(msg) { setNotif(msg); }
+
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [clientsRes, jobsRes, notesRes] = await Promise.all([
+        supabase.from('clients').select('*').order('name'),
+        supabase.from('jobs').select('*, clients(id,name)').order('date'),
+        supabase.from('notes').select('*, clients(id,name)').order('created_at', { ascending:false }),
+      ]);
+      if (clientsRes.error) throw clientsRes.error;
+      if (jobsRes.error) throw jobsRes.error;
+      if (notesRes.error) throw notesRes.error;
+
+      setClients(clientsRes.data || []);
+      setJobs((jobsRes.data || []).map(j => ({ ...j, client: j.clients?.name || "Unknown" })));
+      setNotes((notesRes.data || []).map(n => ({ ...n, client: n.clients?.name || "Unknown" })));
+    } catch (err) {
+      showNotif("⚠️ Failed to load data: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadAll(); }, []);
+
+  const navItems = [
+    { id:"dashboard", icon:"🏠", label:"Dashboard" },
+    { id:"jobs",      icon:"📋", label:"Jobs" },
+    { id:"schedule",  icon:"📅", label:"Schedule" },
+    { id:"clients",   icon:"👥", label:"Clients" },
+    { id:"notes",     icon:"📝", label:"Notes" },
+  ];
+
+  const pageTitles = {
+    dashboard: "Good morning, Janna ☀️",
+    jobs: "Jobs",
+    schedule: "Schedule",
+    clients: "Clients",
+    notes: "Notes"
+  };
+
+  // ── STATS ──────────────────────────────────────────────────────
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayJobs = jobs.filter(j => j.date === todayStr && j.status !== "cancelled");
+  const scheduledJobs = jobs.filter(j => j.status === "scheduled");
+  const completedJobs = jobs.filter(j => j.status === "completed");
+  const pendingJobs = jobs.filter(j => j.status === "pending");
+
+  // ── FILTERED JOBS ─────────────────────────────────────────────
+  const filteredJobs = jobs.filter(j => {
+    const matchStatus = statusFilter === "all" || j.status === statusFilter;
+    const q = searchQ.toLowerCase();
+    const matchSearch = !q || (j.client||"").toLowerCase().includes(q) || (j.address||"").toLowerCase().includes(q) || (j.type||"").toLowerCase().includes(q);
+    return matchStatus && matchSearch;
+  });
+
+  // ── SCHEDULE (group by date) ──────────────────────────────────
+  const scheduleDays = {};
+  [...jobs].filter(j => j.status !== "cancelled").sort((a,b) => a.date.localeCompare(b.date)).forEach(j => {
+    if (!scheduleDays[j.date]) scheduleDays[j.date] = [];
+    scheduleDays[j.date].push(j);
+  });
+
+  function resetBookForm() { setBookForm(EMPTY_BOOK_FORM); }
+  function resetNoteForm() { setNoteForm(EMPTY_NOTE_FORM); }
+
+  async function resolveClientId(form) {
+    if (form.client_id === NEW_CLIENT_VALUE) {
+      if (!form.newClientName.trim()) throw new Error("New client name is required");
+      const { data, error } = await supabase.from('clients').insert({
+        name: form.newClientName.trim(),
+        phone: form.newClientPhone || null,
+        email: form.newClientEmail || null,
+        address: form.newClientAddress || null,
+      }).select().single();
+      if (error) throw error;
+      setClients(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+      return data.id;
+    }
+    if (!form.client_id) throw new Error("Client is required");
+    return form.client_id;
+  }
+
+  // ── BOOK JOB ──────────────────────────────────────────────────
+  async function handleBook() {
+    if (!bookForm.date) { showNotif("⚠️ Client and date are required"); return; }
+    try {
+      const clientId = await resolveClientId(bookForm);
+      const { data, error } = await supabase.from('jobs').insert({
+        client_id: clientId,
+        address: bookForm.address,
+        type: bookForm.type,
+        recurring: bookForm.recurring,
+        status: bookForm.status,
+        date: bookForm.date,
+        time: bookForm.time,
+        cleaner: bookForm.cleaner,
+        notes: bookForm.notes,
+      }).select('*, clients(id,name)').single();
+      if (error) throw error;
+
+      setJobs(p => [...p, { ...data, client: data.clients?.name || "Unknown" }]);
+      setShowBookModal(false);
+      resetBookForm();
+      showNotif("✓ Job booked successfully");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  // ── EDIT JOB ──────────────────────────────────────────────────
+  async function handleEditSave() {
+    if (!editJob.date) { showNotif("⚠️ Client and date are required"); return; }
+    try {
+      const clientId = await resolveClientId(editJob);
+      const { data, error } = await supabase.from('jobs').update({
+        client_id: clientId,
+        address: editJob.address,
+        type: editJob.type,
+        recurring: editJob.recurring,
+        status: editJob.status,
+        date: editJob.date,
+        time: editJob.time,
+        cleaner: editJob.cleaner,
+        notes: editJob.notes,
+      }).eq('id', editJob.id).select('*, clients(id,name)').single();
+      if (error) throw error;
+
+      setJobs(p => p.map(j => j.id === editJob.id ? { ...data, client: data.clients?.name || "Unknown" } : j));
+      setEditJob(null);
+      showNotif("✓ Job updated");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleDeleteJob(id) {
+    try {
+      const { error } = await supabase.from('jobs').delete().eq('id', id);
+      if (error) throw error;
+      setJobs(p => p.filter(j => j.id !== id));
+      setEditJob(null);
+      showNotif("🗑 Job removed");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleMarkComplete(id) {
+    try {
+      const { error } = await supabase.from('jobs').update({ status: "completed" }).eq('id', id);
+      if (error) throw error;
+      setJobs(p => p.map(x => x.id===id ? {...x,status:"completed"} : x));
+      showNotif("✓ Job marked complete");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  // ── ADD NOTE ─────────────────────────────────────────────────
+  async function handleAddNote() {
+    if (!noteForm.text.trim()) { showNotif("⚠️ Client and note text required"); return; }
+    try {
+      const clientId = await resolveClientId(noteForm);
+      const { data, error } = await supabase.from('notes').insert({
+        client_id: clientId,
+        text: noteForm.text,
+        date: new Date().toISOString().split('T')[0],
+      }).select('*, clients(id,name)').single();
+      if (error) throw error;
+
+      setNotes(p => [{ ...data, client: data.clients?.name || "Unknown" }, ...p]);
+      setShowNoteModal(false);
+      resetNoteForm();
+      showNotif("✓ Note added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER PAGES
+  // ═══════════════════════════════════════════════════════════════
+
+  const renderDashboard = () => (
+    <>
+      <div className="stats-grid">
+        {[
+          { label:"Today's Jobs", value: todayJobs.length, sub:"Scheduled today", accent:"#E8F4F8" },
+          { label:"Scheduled", value: scheduledJobs.length, sub:"Upcoming", accent:"#E8F4F8" },
+          { label:"Pending", value: pendingJobs.length, sub:"Need confirmation", accent:"#FFF8EC" },
+          { label:"Completed", value: completedJobs.length, sub:"All time", accent:"#E8F5EE" },
+        ].map((s,i) => (
+          <div key={i} className="stat-card" style={{"--accent":s.accent}}>
+            <div className="stat-label">{s.label}</div>
+            <div className="stat-value">{s.value}</div>
+            <div className="stat-sub">{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Today's Schedule</div>
+          <span style={{fontSize:12,color:"var(--slate-mid)"}}>
+            {new Date(todayStr+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}
+          </span>
+        </div>
+        <div className="card-body">
+          {todayJobs.length === 0
+            ? <div className="empty"><div className="empty-icon">☀️</div><div className="empty-text">No jobs scheduled today</div></div>
+            : todayJobs.map(j => (
+                <div key={j.id} className="job-row">
+                  <div className="job-info">
+                    <div className="job-top">
+                      <span className="job-client">{j.client}</span>
+                      <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+                    </div>
+                    <div className="job-meta">{j.address}</div>
+                    <div className="job-details">
+                      <span className="job-time">{j.time}</span>
+                      <span className="job-type">{j.type} · {j.cleaner}</span>
+                    </div>
+                  </div>
+                  <div className="job-actions">
+                    {j.status !== "completed" &&
+                      <button className="btn-icon" title="Mark complete" onClick={() => handleMarkComplete(j.id)}>
+                        ✓
+                      </button>
+                    }
+                  </div>
+                </div>
+              ))
+          }
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Recent Activity</div>
+        </div>
+        <div className="card-body">
+          {[...jobs].reverse().slice(0,4).map(j => (
+            <div key={j.id} className="job-row">
+              <div style={{width:8,height:8,borderRadius:"50%",background:dotColor[j.status]||"#A8BECB",flexShrink:0,marginTop:6}}></div>
+              <div className="job-info">
+                <div className="job-top">
+                  <span className="job-client">{j.client}</span>
+                  <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+                </div>
+                <div className="job-details">
+                  <span className="job-time">{fmtDate(j.date)}</span>
+                  <span className="job-type">{j.type}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
+  const renderJobs = () => (
+    <div className="card">
+      <div className="search-bar">
+        <input className="search-input" placeholder="Search clients, address, type…" value={searchQ} onChange={e=>setSearchQ(e.target.value)} />
+      </div>
+      <div className="filter-tabs">
+        {STATUS_TABS.map(t => (
+          <button key={t} className={`filter-tab ${statusFilter===t?"active":""}`} onClick={()=>setStatusFilter(t)}>
+            {t.charAt(0).toUpperCase()+t.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div className="card-body">
+        {filteredJobs.length === 0
+          ? <div className="empty"><div className="empty-icon">📋</div><div className="empty-text">No jobs found</div></div>
+          : filteredJobs.map(j => (
+              <div key={j.id} className="job-row">
+                <div className="job-info">
+                  <div className="job-top">
+                    <span className="job-client">{j.client}</span>
+                    <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+                    {j.recurring !== "One-time" && <span className="badge badge-recurring">{j.recurring}</span>}
+                  </div>
+                  <div className="job-meta">{j.address}</div>
+                  <div className="job-details">
+                    <span className="job-time">{j.time} · {fmtDate(j.date)}</span>
+                    <span className="job-type">{j.type} · {j.cleaner}</span>
+                  </div>
+                </div>
+                <div className="job-actions">
+                  {j.status !== "completed" &&
+                    <button className="btn-icon" title="Mark complete" onClick={() => handleMarkComplete(j.id)}>
+                      ✓
+                    </button>
+                  }
+                  <button className="btn-icon" title="Edit job" onClick={()=>setEditJob({
+                    ...j, client_id: j.client_id, newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:""
+                  })}>✏️</button>
+                </div>
+              </div>
+            ))
+        }
+      </div>
+    </div>
+  );
+
+  const renderSchedule = () => (
+    <>
+      {Object.keys(scheduleDays).length === 0
+        ? <div className="empty"><div className="empty-icon">📅</div><div className="empty-text">No scheduled jobs</div></div>
+        : Object.entries(scheduleDays).map(([date, dayJobs]) => (
+            <div key={date} className="schedule-day">
+              <div className="day-header">
+                <div className="day-label">
+                  {new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}
+                </div>
+                <div className="day-line"></div>
+                <div className="day-count">{dayJobs.length} job{dayJobs.length!==1?"s":""}</div>
+              </div>
+              {dayJobs.map(j => (
+                <div key={j.id} className="slot">
+                  <div className="slot-dot" style={{background: dotColor[j.status] || "#A8BECB"}}></div>
+                  <div className="slot-time">{j.time || "—"}</div>
+                  <div className="slot-info">
+                    <div className="slot-client">{j.client}</div>
+                    <div className="slot-detail">{j.type} · {j.cleaner} · {j.address}</div>
+                  </div>
+                  <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+                </div>
+              ))}
+            </div>
+          ))
+      }
+    </>
+  );
+
+  const renderClients = () => (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">All Clients</div>
+        <span style={{fontSize:12,color:"var(--slate-mid)"}}>{clients.length} total</span>
+      </div>
+      <div className="card-body">
+        {clients.length === 0
+          ? <div className="empty"><div className="empty-icon">👥</div><div className="empty-text">No clients yet</div></div>
+          : clients.map(c => {
+              const clientJobs = jobs.filter(j => j.client_id === c.id).sort((a,b)=>a.date.localeCompare(b.date));
+              const lastJob = clientJobs[clientJobs.length-1];
+              return (
+                <div key={c.id} className="client-row">
+                  <div className="client-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
+                  <div style={{flex:1}}>
+                    <div className="client-name">{c.name}</div>
+                    <div className="client-addr">{c.address || "No address on file"}</div>
+                  </div>
+                  <div style={{textAlign:"right", marginRight:10}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"var(--ocean)"}}>{lastJob?.recurring || "—"}</div>
+                    <div style={{fontSize:11,color:"var(--slate-mid)"}}>{clientJobs.length} job{clientJobs.length!==1?"s":""}</div>
+                  </div>
+                  {lastJob && (
+                    <span className={`badge badge-${lastJob.status}`}>
+                      <span className="badge-dot"></span>{lastJob.status}
+                    </span>
+                  )}
+                </div>
+              );
+            })
+        }
+      </div>
+    </div>
+  );
+
+  const renderNotes = () => (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">Cleaner Notes</div>
+      </div>
+      <div className="card-body" style={{padding:16}}>
+        {notes.length === 0
+          ? <div className="empty"><div className="empty-icon">📝</div><div className="empty-text">No notes yet</div></div>
+          : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+              {notes.map(n => (
+                <div key={n.id} className="note-item" style={{borderLeftColor:colorFor(n.client_id),padding:"14px 16px"}}>
+                  <div className="note-header">
+                    <span className="note-client">{n.client}</span>
+                    <span className="note-date">{fmtDate(n.date)}</span>
+                  </div>
+                  <div className="note-text">{n.text}</div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+    </div>
+  );
+
+  const topbarActions = {
+    dashboard: <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button>,
+    jobs:      <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button>,
+    schedule:  <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button>,
+    clients:   null,
+    notes:     <button className="btn btn-primary" onClick={()=>setShowNoteModal(true)}>+ Add Note</button>,
+  };
+
+  const pages = { dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients, notes: renderNotes };
+
+  return (
+    <>
+      <style>{styles}</style>
+      {notif && <div className="notif">{notif}</div>}
+
+      {/* BOOK MODAL */}
+      {showBookModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowBookModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Book a Job</div>
+              <button className="modal-close" onClick={()=>setShowBookModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <ClientPicker clients={clients} form={bookForm} setForm={setBookForm} label="Client" />
+              <div className="form-group">
+                <label className="form-label">Status</label>
+                <select className="form-select" value={bookForm.status} onChange={e=>setBookForm(p=>({...p,status:e.target.value}))}>
+                  {["scheduled","pending","cancelled"].map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Job Site Address</label>
+                <input className="form-input" value={bookForm.address} onChange={e=>setBookForm(p=>({...p,address:e.target.value}))} placeholder="Street address" />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Service Type</label>
+                  <select className="form-select" value={bookForm.type} onChange={e=>setBookForm(p=>({...p,type:e.target.value}))}>
+                    {SERVICE_TYPES.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Recurrence</label>
+                  <select className="form-select" value={bookForm.recurring} onChange={e=>setBookForm(p=>({...p,recurring:e.target.value}))}>
+                    {RECURRENCE.map(r=><option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Date *</label>
+                  <input className="form-input" type="date" value={bookForm.date} onChange={e=>setBookForm(p=>({...p,date:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Time</label>
+                  <input className="form-input" type="time" value={bookForm.time} onChange={e=>setBookForm(p=>({...p,time:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Assign Cleaner</label>
+                <select className="form-select" value={bookForm.cleaner} onChange={e=>setBookForm(p=>({...p,cleaner:e.target.value}))}>
+                  {CLEANERS.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notes for Cleaner</label>
+                <textarea className="form-textarea" value={bookForm.notes} onChange={e=>setBookForm(p=>({...p,notes:e.target.value}))} placeholder="Access instructions, special requests…" />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowBookModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleBook}>Book Job</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT MODAL */}
+      {editJob && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setEditJob(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Edit Job</div>
+              <button className="modal-close" onClick={()=>setEditJob(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <ClientPicker clients={clients} form={editJob} setForm={setEditJob} label="Client" />
+              <div className="form-group">
+                <label className="form-label">Status</label>
+                <select className="form-select" value={editJob.status} onChange={e=>setEditJob(p=>({...p,status:e.target.value}))}>
+                  {["scheduled","pending","completed","cancelled"].map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Job Site Address</label>
+                <input className="form-input" value={editJob.address} onChange={e=>setEditJob(p=>({...p,address:e.target.value}))} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Service Type</label>
+                  <select className="form-select" value={editJob.type} onChange={e=>setEditJob(p=>({...p,type:e.target.value}))}>
+                    {SERVICE_TYPES.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Recurrence</label>
+                  <select className="form-select" value={editJob.recurring} onChange={e=>setEditJob(p=>({...p,recurring:e.target.value}))}>
+                    {RECURRENCE.map(r=><option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Date *</label>
+                  <input className="form-input" type="date" value={editJob.date} onChange={e=>setEditJob(p=>({...p,date:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Time</label>
+                  <input className="form-input" type="time" value={editJob.time} onChange={e=>setEditJob(p=>({...p,time:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Assign Cleaner</label>
+                <select className="form-select" value={editJob.cleaner} onChange={e=>setEditJob(p=>({...p,cleaner:e.target.value}))}>
+                  {CLEANERS.map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notes for Cleaner</label>
+                <textarea className="form-textarea" value={editJob.notes} onChange={e=>setEditJob(p=>({...p,notes:e.target.value}))} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost btn-icon danger" style={{width:"auto",padding:"8px 14px",fontSize:13}} onClick={()=>handleDeleteJob(editJob.id)}>🗑 Delete</button>
+              <button className="btn btn-ghost" onClick={()=>setEditJob(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEditSave}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTE MODAL */}
+      {showNoteModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowNoteModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Add Note</div>
+              <button className="modal-close" onClick={()=>setShowNoteModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <ClientPicker clients={clients} form={noteForm} setForm={setNoteForm} label="Client" />
+              <div className="form-group">
+                <label className="form-label">Note</label>
+                <textarea className="form-textarea" value={noteForm.text} onChange={e=>setNoteForm(p=>({...p,text:e.target.value}))} placeholder="Instructions, access codes, preferences…" style={{minHeight:120}} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowNoteModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAddNote}>Add Note</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="app">
+        {/* TOP HEADER */}
+        <div className="topbar">
+          <div className="topbar-left">
+            <span className="brand-icon">🧹</span>
+            <div>
+              <div className="brand-name">Janna's Cleaning Service</div>
+            </div>
+          </div>
+          <div className="topbar-right">
+            {topbarActions[activeNav]}
+            <div className="avatar">J</div>
+          </div>
+        </div>
+
+        {/* NAV BAR */}
+        <div className="navbar">
+          <div className="nav-tabs">
+            {navItems.map(n => (
+              <div key={n.id} className={`nav-item ${activeNav===n.id?"active":""}`} onClick={()=>setActiveNav(n.id)}>
+                <span className="nav-icon">{n.icon}</span>
+                <span>{n.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* MAIN */}
+        <div className="main">
+          <div className="content">
+            {loading
+              ? <div className="empty"><div className="empty-icon">⏳</div><div className="empty-text">Loading…</div></div>
+              : pages[activeNav]?.()
+            }
+          </div>
+          <div className="app-footer">r{APP_REV}</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<JannasDashboard />);
+</script>
+</body>
+</html>
