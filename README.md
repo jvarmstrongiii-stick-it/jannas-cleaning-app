@@ -23,13 +23,18 @@ schedule, clients, and cleaner notes.
 
 ## Setup
 
-1. Create a Supabase project.
-2. Run `supabase/schema.sql` against it (SQL Editor → New query).
-3. In `jannas.html`, set `SUPABASE_URL` and `SUPABASE_ANON_KEY` to the
-   project's values (Project Settings → API).
-4. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` in `jannas.html` already point at the
+live project (`hcoslltuiltkkbqcgtzm`).
+
+1. Run `supabase/schema.sql` against it (SQL Editor → New query) if the
+   `clients` / `jobs` / `notes` tables aren't there yet.
+2. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
    to the `gh-pages` branch.
-5. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
+3. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
+
+To point the app at a different Supabase project, swap the two constants
+near the top of `jannas.html` (Project Settings → API for the URL and
+anon/publishable key).
 
 ## Data model
 

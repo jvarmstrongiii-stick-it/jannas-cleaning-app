@@ -11,11 +11,11 @@
 All user-facing changes go in jannas.html. No auth, no backend server —
 Supabase JS client direct from the browser, RLS-gated.
 
-## Supabase setup required before this app works
-`SUPABASE_URL` / `SUPABASE_ANON_KEY` near the top of jannas.html are
-placeholders. Create a Supabase project, run `supabase/schema.sql` against
-it (SQL Editor → New query), then paste the project URL and anon key in.
-Until that's done the app will load but every fetch/insert will fail.
+## Supabase project
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` near the top of jannas.html are wired
+to the live project (`hcoslltuiltkkbqcgtzm`). Run `supabase/schema.sql`
+against it (SQL Editor → New query) if the tables aren't there yet —
+until that's done the app loads but every fetch/insert will fail.
 
 ## Data model
 `clients` is a real table (id, name, phone, email, address) — not derived

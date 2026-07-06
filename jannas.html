@@ -16,12 +16,11 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 1;
+const APP_REV = 2;
 
 // ── Supabase config ──────────────────────────────────────────────
-// TODO: replace with the real project URL + anon key before deploying.
-const SUPABASE_URL = "https://YOUR-PROJECT.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR-ANON-KEY";
+const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhjb3NsbHR1aWx0a2ticWNndHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzMTE3NDUsImV4cCI6MjA5ODg4Nzc0NX0.kt1H1GxBo1-GHnr3ebMibbII8_KMXr9PnkvqAFeyKr4";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const styles = `
