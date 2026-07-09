@@ -27,6 +27,24 @@ inline) since there's no dedicated client-creation screen yet.
 mock data — badge and dot colors are derived client-side from `status`
 (dotColor map) or a hash of the row's id (colorFor), not stored.
 
+`cleaners` is a real table (id, name, phone, email, active) managed on the
+Team screen. `jobs.cleaner` stays free text (not a FK) so existing job
+history survives roster changes — the Assign Cleaner dropdown is just
+populated from `cleaners.filter(active)`.
+
+## Trusted-device gate (not real auth)
+`APP_PASSPHRASE` near the top of jannas.html is a placeholder — set a real
+shared passphrase before handing devices to staff. On first load a device
+must enter it once; that unlocks `localStorage[jannas_trusted_v1]="true"`
+permanently on that device (no expiry, no per-user check). After that, the
+user picks their name from `cleaners` (or adds themselves inline if the
+roster is empty) and it's stored as `localStorage[jannas_user_v1]`. This
+is a UX-level "who's on this device" convenience, not security — RLS still
+grants the open anon key full read/write, matching the rest of the app's
+security posture. Switching users doesn't re-prompt the passphrase by
+design (shared-tablet model); "Lock device" in the avatar menu clears both
+localStorage keys and re-shows the passphrase gate.
+
 ## Self-Update Protocol
 Before every commit, ask: would a new session be confused by something
 introduced here? If yes, update this file in the same commit.

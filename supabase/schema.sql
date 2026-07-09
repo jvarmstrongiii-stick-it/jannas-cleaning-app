@@ -15,6 +15,19 @@ create table if not exists clients (
   created_at timestamptz not null default now()
 );
 
+-- ── cleaners ─────────────────────────────────────────────────────
+-- Staff/employees. jobs.cleaner stays a free-text name (not a FK) so
+-- existing job history isn't disturbed by roster changes; the Book/Edit
+-- Job "Assign Cleaner" dropdown is populated from this table.
+create table if not exists cleaners (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text,
+  email text,
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
 -- ── jobs ─────────────────────────────────────────────────────────
 create table if not exists jobs (
   id uuid primary key default gen_random_uuid(),
@@ -48,6 +61,7 @@ create index if not exists notes_client_id_idx on notes(client_id);
 alter table clients enable row level security;
 alter table jobs enable row level security;
 alter table notes enable row level security;
+alter table cleaners enable row level security;
 
 create policy "anon full access on clients" on clients
   for all to anon using (true) with check (true);
@@ -56,4 +70,7 @@ create policy "anon full access on jobs" on jobs
   for all to anon using (true) with check (true);
 
 create policy "anon full access on notes" on notes
+  for all to anon using (true) with check (true);
+
+create policy "anon full access on cleaners" on cleaners
   for all to anon using (true) with check (true);

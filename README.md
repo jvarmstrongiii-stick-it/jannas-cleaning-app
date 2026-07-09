@@ -15,9 +15,10 @@ schedule, clients, and cleaner notes.
 
 ```
 /
-├── jannas.html             # entire app: HTML + <style> + <script type="text/babel">
-├── supabase/schema.sql     # tables + RLS policies to run once on a new Supabase project
-├── CLAUDE.md               # commit/deploy rules for future sessions
+├── jannas.html                    # entire app: HTML + <style> + <script type="text/babel">
+├── supabase/schema.sql            # full schema + RLS policies, for a fresh Supabase project
+├── supabase/002_add_cleaners.sql  # incremental migration adding `cleaners` to an already-live project
+├── CLAUDE.md                      # commit/deploy rules for future sessions
 └── .github/workflows/deploy.yml
 ```
 
@@ -27,14 +28,18 @@ schedule, clients, and cleaner notes.
 live project (`hcoslltuiltkkbqcgtzm`).
 
 1. Run `supabase/schema.sql` against it (SQL Editor → New query) if the
-   `clients` / `jobs` / `notes` tables aren't there yet.
-2. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
+   `clients` / `jobs` / `notes` / `cleaners` tables aren't there yet. If
+   you already ran an older version of schema.sql that predates
+   `cleaners`, run `supabase/002_add_cleaners.sql` instead to catch up.
+2. Set `APP_PASSPHRASE` in `jannas.html` to a real shared passphrase before
+   handing devices to staff (see Trusted-device gate below).
+3. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
    to the `gh-pages` branch.
-3. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
+4. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
 
-To point the app at a different Supabase project, swap the two constants
-near the top of `jannas.html` (Project Settings → API for the URL and
-anon/publishable key).
+To point the app at a different Supabase project, swap the two Supabase
+constants near the top of `jannas.html` (Project Settings → API for the
+URL and anon/publishable key).
 
 ## Data model
 
@@ -45,17 +50,32 @@ anon/publishable key).
   differ from the client's billing address.
 - **notes** — `id, client_id (FK), text, date` — cleaner-facing notes per
   client.
+- **cleaners** — `id, name, phone, email, active` — staff roster, managed
+  on the Team screen. `jobs.cleaner` is still free text (not a FK to this
+  table) so existing job history isn't disturbed by roster changes.
 
 Badge/dot colors are derived client-side from job `status`, not stored.
 
 ## Screens
 
-Dashboard, Jobs, Schedule, Clients, Notes — plus global Book Job / Edit
-Job / Add Note modals, all inlined directly in the render tree (not inner
-component functions, to avoid remounting on every keystroke).
+Dashboard, Jobs, Schedule, Clients, Notes, Team — plus global Book Job /
+Edit Job / Add Note / Add Cleaner / Edit Cleaner modals, all inlined
+directly in the render tree (not inner component functions, to avoid
+remounting on every keystroke).
+
+## Trusted-device gate
+
+On first load, a device must enter a shared passphrase (`APP_PASSPHRASE`
+in jannas.html) before seeing any data. This is a lightweight "who's on
+this device" gate for a shared tablet/phone, not real authentication — the
+Supabase anon key is still open + RLS-gated the same as everywhere else in
+the app. Once unlocked, the device stays unlocked (`localStorage`, no
+expiry) and the user picks their name from the `cleaners` roster (or adds
+themselves inline if the roster is empty). Switching users doesn't
+re-prompt the passphrase; "Lock device" in the avatar menu does.
 
 ## Deferred (not built yet)
 
-Client-facing login/portal, cleaner accounts, calendar view, push
-notifications, auto-generated recurring jobs, invoicing/payments,
+Client-facing login/portal, real per-user auth/permissions, calendar view,
+push notifications, auto-generated recurring jobs, invoicing/payments,
 multi-tenant support.

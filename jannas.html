@@ -16,12 +16,20 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 3;
+const APP_REV = 4;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhjb3NsbHR1aWx0a2ticWNndHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzMTE3NDUsImV4cCI6MjA5ODg4Nzc0NX0.kt1H1GxBo1-GHnr3ebMibbII8_KMXr9PnkvqAFeyKr4";
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── Trusted-device passphrase gate ────────────────────────────────
+// Lightweight device gate, not real auth (RLS still uses the open anon
+// key above). TODO: set a real shared passphrase before handing devices
+// to staff.
+const APP_PASSPHRASE = "CHANGE-ME";
+const TRUST_KEY = "jannas_trusted_v1";
+const USER_KEY = "jannas_user_v1";
 
 const styles = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -274,6 +282,49 @@ const styles = `
   /* FOOTER */
   .app-footer { text-align: center; padding: 8px; font-size: 10px; color: var(--slate-light); flex-shrink: 0; }
 
+  /* GATE / USER PICKER */
+  .gate-screen {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--slate); padding: 24px;
+  }
+  .gate-card {
+    background: #fff; border-radius: 16px; padding: 32px 28px; width: 100%; max-width: 360px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;
+  }
+  .gate-icon { font-size: 36px; margin-bottom: 8px; }
+  .gate-title { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--slate); margin-bottom: 4px; }
+  .gate-sub { font-size: 13px; color: var(--slate-mid); margin-bottom: 20px; }
+  .gate-error { color: var(--coral); font-size: 12px; margin-top: 8px; }
+  .name-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-top: 8px; }
+  .name-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 16px 8px; border-radius: 12px; border: 1px solid #eef2f5; background: #fff;
+    cursor: pointer; transition: all 0.2s; font-family: var(--font-body);
+  }
+  .name-btn:hover { border-color: var(--ocean-light); background: var(--ocean-pale); }
+  .name-avatar {
+    width: 44px; height: 44px; border-radius: 50%; color: #fff; font-weight: 600; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .name-label { font-size: 13px; font-weight: 500; color: var(--slate); }
+
+  /* USER MENU */
+  .user-menu-wrap { position: relative; }
+  .user-menu {
+    position: absolute; top: 40px; right: 0; background: #fff; border-radius: 10px;
+    border: 1px solid #eef2f5; box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    min-width: 160px; z-index: 1001; overflow: hidden;
+  }
+  .user-menu-header { padding: 10px 14px; font-size: 12px; color: var(--slate-mid); border-bottom: 1px solid #f0f4f6; }
+  .user-menu-item {
+    padding: 10px 14px; font-size: 13px; color: var(--slate); cursor: pointer; transition: background 0.15s;
+  }
+  .user-menu-item:hover { background: var(--ocean-pale); }
+
+  /* ACTIVE / INACTIVE BADGES (Team) */
+  .badge-active { background: #E8F5EE; color: #2E7A4F; }
+  .badge-inactive { background: #F1F1F1; color: #8a94a3; }
+
   /* SCROLLBAR */
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -290,7 +341,6 @@ const styles = `
 
 const SERVICE_TYPES = ["Standard Clean","Deep Clean","Move-In Clean","Move-Out Clean","Post-Construction","Window Cleaning"];
 const RECURRENCE = ["One-time","Weekly","Bi-weekly","Monthly"];
-const CLEANERS = ["Maria G.","Diane R.","Unassigned"];
 const STATUS_TABS = ["all","scheduled","pending","completed","cancelled"];
 const NEW_CLIENT_VALUE = "__new__";
 const PALETTE = ["#4FA8C9","#6BAF8A","#E07B5A","#9B7BC4","#E8A838","#5BA5A5"];
@@ -304,6 +354,7 @@ const EMPTY_BOOK_FORM = {
 const EMPTY_NOTE_FORM = {
   client_id:"", newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:"", text:""
 };
+const EMPTY_CLEANER_FORM = { name:"", phone:"", email:"" };
 
 function fmtDate(d) {
   if (!d) return "";
@@ -363,6 +414,100 @@ function ClientPicker({ clients, form, setForm, label }) {
   );
 }
 
+function PassphraseGate({ onUnlock }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+
+  function submit(e) {
+    e.preventDefault();
+    if (value === APP_PASSPHRASE) {
+      onUnlock();
+    } else {
+      setError("Incorrect passphrase");
+    }
+  }
+
+  return (
+    <>
+      <style>{styles}</style>
+      <div className="gate-screen">
+        <form className="gate-card" onSubmit={submit}>
+          <div className="gate-icon">🧹</div>
+          <div className="gate-title">Janna's Cleaning Service</div>
+          <div className="gate-sub">Enter the team passphrase to unlock this device</div>
+          <input className="form-input" type="password" value={value}
+            onChange={e=>{ setValue(e.target.value); setError(""); }}
+            placeholder="Passphrase" autoFocus />
+          {error && <div className="gate-error">{error}</div>}
+          <div style={{marginTop:16}}>
+            <button className="btn btn-primary" type="submit" style={{width:"100%"}}>Unlock</button>
+          </div>
+        </form>
+      </div>
+    </>
+  );
+}
+
+function UserPicker({ cleaners, loading, onSelect, onAddNew }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const active = cleaners.filter(c => c.active);
+
+  async function submitAdd(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await onAddNew(name.trim());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <style>{styles}</style>
+      <div className="gate-screen">
+        <div className="gate-card" style={{maxWidth:420}}>
+          <div className="gate-icon">👋</div>
+          <div className="gate-title">Who's this?</div>
+          <div className="gate-sub">Pick your name to continue</div>
+          {loading
+            ? <div className="empty-text">Loading team…</div>
+            : active.length > 0 && (
+                <div className="name-grid">
+                  {active.map(c => (
+                    <button key={c.id} className="name-btn" onClick={()=>onSelect(c)}>
+                      <div className="name-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
+                      <div className="name-label">{c.name}</div>
+                    </button>
+                  ))}
+                </div>
+              )
+          }
+          {!loading && !showAdd && (
+            <button className="btn btn-ghost" style={{marginTop:16,width:"100%"}} onClick={()=>setShowAdd(true)}>
+              + Add yourself
+            </button>
+          )}
+          {!loading && showAdd && (
+            <form onSubmit={submitAdd} style={{marginTop:16,textAlign:"left"}}>
+              <div className="form-group">
+                <label className="form-label">Your Name</label>
+                <input className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="Full name" autoFocus />
+              </div>
+              <button className="btn btn-primary" type="submit" style={{width:"100%"}} disabled={busy}>
+                {busy ? "Adding…" : "Add & Continue"}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function JannasDashboard() {
   const [activeNav, setActiveNav] = useState("dashboard");
 
@@ -370,15 +515,25 @@ function JannasDashboard() {
   const [clients, setClients] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [cleaners, setCleaners] = useState([]);
   const [notif, setNotif] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQ, setSearchQ] = useState("");
   const [showBookModal, setShowBookModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showCleanerModal, setShowCleanerModal] = useState(false);
   const [editJob, setEditJob] = useState(null);
+  const [editCleaner, setEditCleaner] = useState(null);
 
   const [bookForm, setBookForm] = useState(EMPTY_BOOK_FORM);
   const [noteForm, setNoteForm] = useState(EMPTY_NOTE_FORM);
+  const [cleanerForm, setCleanerForm] = useState(EMPTY_CLEANER_FORM);
+
+  const [trusted, setTrusted] = useState(() => localStorage.getItem(TRUST_KEY) === 'true');
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; }
+  });
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
     if (notif) { const t = setTimeout(() => setNotif(null), 3000); return () => clearTimeout(t); }
@@ -389,18 +544,21 @@ function JannasDashboard() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [clientsRes, jobsRes, notesRes] = await Promise.all([
+      const [clientsRes, jobsRes, notesRes, cleanersRes] = await Promise.all([
         supabase.from('clients').select('*').order('name'),
         supabase.from('jobs').select('*, clients(id,name)').order('date'),
         supabase.from('notes').select('*, clients(id,name)').order('created_at', { ascending:false }),
+        supabase.from('cleaners').select('*').order('name'),
       ]);
       if (clientsRes.error) throw clientsRes.error;
       if (jobsRes.error) throw jobsRes.error;
       if (notesRes.error) throw notesRes.error;
+      if (cleanersRes.error) throw cleanersRes.error;
 
       setClients(clientsRes.data || []);
       setJobs((jobsRes.data || []).map(j => ({ ...j, client: j.clients?.name || "Unknown" })));
       setNotes((notesRes.data || []).map(n => ({ ...n, client: n.clients?.name || "Unknown" })));
+      setCleaners(cleanersRes.data || []);
     } catch (err) {
       showNotif("⚠️ Failed to load data: " + err.message);
     } finally {
@@ -410,12 +568,47 @@ function JannasDashboard() {
 
   useEffect(() => { loadAll(); }, []);
 
+  async function handleAddSelfCleaner(name) {
+    try {
+      const { data, error } = await supabase.from('cleaners').insert({ name, active: true }).select().single();
+      if (error) throw error;
+      setCleaners(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+      const u = { id: data.id, name: data.name };
+      localStorage.setItem(USER_KEY, JSON.stringify(u));
+      setCurrentUser(u);
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  if (!trusted) {
+    return (
+      <>
+        {notif && <div className="notif">{notif}</div>}
+        <PassphraseGate onUnlock={() => { localStorage.setItem(TRUST_KEY, 'true'); setTrusted(true); }} />
+      </>
+    );
+  }
+  if (!currentUser) {
+    return (
+      <>
+        {notif && <div className="notif">{notif}</div>}
+        <UserPicker cleaners={cleaners} loading={loading} onAddNew={handleAddSelfCleaner} onSelect={(c) => {
+          const u = { id: c.id, name: c.name };
+          localStorage.setItem(USER_KEY, JSON.stringify(u));
+          setCurrentUser(u);
+        }} />
+      </>
+    );
+  }
+
   const navItems = [
     { id:"dashboard", icon:"🏠", label:"Dashboard" },
     { id:"jobs",      icon:"📋", label:"Jobs" },
     { id:"schedule",  icon:"📅", label:"Schedule" },
     { id:"clients",   icon:"👥", label:"Clients" },
     { id:"notes",     icon:"📝", label:"Notes" },
+    { id:"team",      icon:"🧺", label:"Team" },
   ];
 
   const pageTitles = {
@@ -560,6 +753,60 @@ function JannasDashboard() {
       setShowNoteModal(false);
       resetNoteForm();
       showNotif("✓ Note added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  function resetCleanerForm() { setCleanerForm(EMPTY_CLEANER_FORM); }
+
+  // ── TEAM (CLEANERS) ─────────────────────────────────────────────
+  async function handleAddCleaner() {
+    if (!cleanerForm.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('cleaners').insert({
+        name: cleanerForm.name.trim(),
+        phone: cleanerForm.phone || null,
+        email: cleanerForm.email || null,
+        active: true,
+      }).select().single();
+      if (error) throw error;
+
+      setCleaners(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+      setShowCleanerModal(false);
+      resetCleanerForm();
+      showNotif("✓ Cleaner added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleEditCleanerSave() {
+    if (!editCleaner.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('cleaners').update({
+        name: editCleaner.name.trim(),
+        phone: editCleaner.phone || null,
+        email: editCleaner.email || null,
+        active: editCleaner.active,
+      }).eq('id', editCleaner.id).select().single();
+      if (error) throw error;
+
+      setCleaners(p => p.map(c => c.id === data.id ? data : c).sort((a,b) => a.name.localeCompare(b.name)));
+      setEditCleaner(null);
+      showNotif("✓ Cleaner updated");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleDeleteCleaner(id) {
+    try {
+      const { error } = await supabase.from('cleaners').delete().eq('id', id);
+      if (error) throw error;
+      setCleaners(p => p.filter(c => c.id !== id));
+      setEditCleaner(null);
+      showNotif("🗑 Cleaner removed");
     } catch (err) {
       showNotif("⚠️ " + err.message);
     }
@@ -783,15 +1030,43 @@ function JannasDashboard() {
     </div>
   );
 
+  const renderTeam = () => (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">Team</div>
+        <span style={{fontSize:12,color:"var(--slate-mid)"}}>{cleaners.length} total</span>
+      </div>
+      <div className="card-body">
+        {cleaners.length === 0
+          ? <div className="empty"><div className="empty-icon">🧺</div><div className="empty-text">No cleaners yet</div></div>
+          : cleaners.map(c => (
+              <div key={c.id} className="client-row">
+                <div className="client-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
+                <div style={{flex:1}}>
+                  <div className="client-name">{c.name}</div>
+                  <div className="client-addr">{[c.phone, c.email].filter(Boolean).join(" · ") || "No contact info"}</div>
+                </div>
+                <span className={`badge ${c.active ? "badge-active" : "badge-inactive"}`} style={{marginRight:10}}>
+                  <span className="badge-dot"></span>{c.active ? "active" : "inactive"}
+                </span>
+                <button className="btn-icon" title="Edit cleaner" onClick={()=>setEditCleaner({...c})}>✏️</button>
+              </div>
+            ))
+        }
+      </div>
+    </div>
+  );
+
   const topbarActions = {
     dashboard: <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button>,
     jobs:      <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button>,
     schedule:  <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button>,
     clients:   null,
     notes:     <button className="btn btn-primary" onClick={()=>setShowNoteModal(true)}>+ Add Note</button>,
+    team:      <button className="btn btn-primary" onClick={()=>setShowCleanerModal(true)}>+ Add Cleaner</button>,
   };
 
-  const pages = { dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients, notes: renderNotes };
+  const pages = { dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients, notes: renderNotes, team: renderTeam };
 
   return (
     <>
@@ -845,7 +1120,8 @@ function JannasDashboard() {
               <div className="form-group">
                 <label className="form-label">Assign Cleaner</label>
                 <select className="form-select" value={bookForm.cleaner} onChange={e=>setBookForm(p=>({...p,cleaner:e.target.value}))}>
-                  {CLEANERS.map(c=><option key={c}>{c}</option>)}
+                  <option value="Unassigned">Unassigned</option>
+                  {cleaners.filter(c=>c.active).map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
@@ -908,7 +1184,8 @@ function JannasDashboard() {
               <div className="form-group">
                 <label className="form-label">Assign Cleaner</label>
                 <select className="form-select" value={editJob.cleaner} onChange={e=>setEditJob(p=>({...p,cleaner:e.target.value}))}>
-                  {CLEANERS.map(c=><option key={c}>{c}</option>)}
+                  <option value="Unassigned">Unassigned</option>
+                  {cleaners.filter(c=>c.active).map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
@@ -948,6 +1225,78 @@ function JannasDashboard() {
         </div>
       )}
 
+      {/* ADD CLEANER MODAL */}
+      {showCleanerModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowCleanerModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Add Cleaner</div>
+              <button className="modal-close" onClick={()=>setShowCleanerModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={cleanerForm.name} onChange={e=>setCleanerForm(p=>({...p,name:e.target.value}))} placeholder="Full name" />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={cleanerForm.phone} onChange={e=>setCleanerForm(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={cleanerForm.email} onChange={e=>setCleanerForm(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowCleanerModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAddCleaner}>Add Cleaner</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CLEANER MODAL */}
+      {editCleaner && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setEditCleaner(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Edit Cleaner</div>
+              <button className="modal-close" onClick={()=>setEditCleaner(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={editCleaner.name} onChange={e=>setEditCleaner(p=>({...p,name:e.target.value}))} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={editCleaner.phone||""} onChange={e=>setEditCleaner(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={editCleaner.email||""} onChange={e=>setEditCleaner(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Status</label>
+                <select className="form-select" value={editCleaner.active ? "active" : "inactive"} onChange={e=>setEditCleaner(p=>({...p,active:e.target.value==="active"}))}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost btn-icon danger" style={{width:"auto",padding:"8px 14px",fontSize:13}} onClick={()=>handleDeleteCleaner(editCleaner.id)}>🗑 Delete</button>
+              <button className="btn btn-ghost" onClick={()=>setEditCleaner(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEditCleanerSave}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="app">
         {/* TOP HEADER */}
         <div className="topbar">
@@ -959,7 +1308,19 @@ function JannasDashboard() {
           </div>
           <div className="topbar-right">
             {topbarActions[activeNav]}
-            <div className="avatar">J</div>
+            <div className="user-menu-wrap">
+              <div className="avatar" style={{cursor:"pointer", background: currentUser ? colorFor(currentUser.id) : "var(--ocean)"}}
+                onClick={()=>setShowUserMenu(v=>!v)}>
+                {currentUser?.name?.[0] || "?"}
+              </div>
+              {showUserMenu && (
+                <div className="user-menu" onMouseLeave={()=>setShowUserMenu(false)}>
+                  <div className="user-menu-header">{currentUser?.name}</div>
+                  <div className="user-menu-item" onClick={()=>{ localStorage.removeItem(USER_KEY); setCurrentUser(null); setShowUserMenu(false); }}>Switch user</div>
+                  <div className="user-menu-item" onClick={()=>{ localStorage.removeItem(USER_KEY); localStorage.removeItem(TRUST_KEY); setCurrentUser(null); setTrusted(false); setShowUserMenu(false); }}>Lock device</div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
