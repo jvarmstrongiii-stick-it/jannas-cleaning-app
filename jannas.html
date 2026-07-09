@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 4;
+const APP_REV = 5;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -73,8 +73,10 @@ const styles = `
     background: #fff; border-bottom: 1px solid #eef2f5;
     display: flex; align-items: center; justify-content: space-between;
     padding: 0 24px; flex-shrink: 0; gap: 4px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
   }
-  .nav-tabs { display: flex; gap: 2px; }
+  .navbar::-webkit-scrollbar { display: none; }
+  .nav-tabs { display: flex; gap: 2px; flex-shrink: 0; }
   .nav-item {
     display: flex; align-items: center; gap: 7px; padding: 12px 16px;
     cursor: pointer; font-size: 13px; font-weight: 500;
