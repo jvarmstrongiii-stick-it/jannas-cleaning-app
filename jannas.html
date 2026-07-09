@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 6;
+const APP_REV = 7;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -27,7 +27,7 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Lightweight device gate, not real auth (RLS still uses the open anon
 // key above). TODO: set a real shared passphrase before handing devices
 // to staff.
-const APP_PASSPHRASE = "CHANGE-ME";
+const APP_PASSPHRASE = "Bologna";
 const TRUST_KEY = "jannas_trusted_v1";
 const USER_KEY = "jannas_user_v1";
 
