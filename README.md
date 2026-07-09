@@ -15,10 +15,11 @@ schedule, clients, and cleaner notes.
 
 ```
 /
-├── jannas.html                    # entire app: HTML + <style> + <script type="text/babel">
-├── supabase/schema.sql            # full schema + RLS policies, for a fresh Supabase project
-├── supabase/002_add_cleaners.sql  # incremental migration adding `cleaners` to an already-live project
-├── CLAUDE.md                      # commit/deploy rules for future sessions
+├── jannas.html                       # entire app: HTML + <style> + <script type="text/babel">
+├── supabase/schema.sql               # full schema + RLS policies, for a fresh Supabase project
+├── supabase/002_add_cleaners.sql     # incremental migration adding `cleaners` to an already-live project
+├── supabase/003_add_cleaner_role.sql # incremental migration adding `cleaners.role` (owner vs cleaner)
+├── CLAUDE.md                         # commit/deploy rules for future sessions
 └── .github/workflows/deploy.yml
 ```
 
@@ -29,13 +30,19 @@ live project (`hcoslltuiltkkbqcgtzm`).
 
 1. Run `supabase/schema.sql` against it (SQL Editor → New query) if the
    `clients` / `jobs` / `notes` / `cleaners` tables aren't there yet. If
-   you already ran an older version of schema.sql that predates
-   `cleaners`, run `supabase/002_add_cleaners.sql` instead to catch up.
-2. Set `APP_PASSPHRASE` in `jannas.html` to a real shared passphrase before
+   you already ran an older version that predates `cleaners` or its
+   `role` column, run `supabase/002_add_cleaners.sql` and/or
+   `supabase/003_add_cleaner_role.sql` instead to catch up.
+2. Promote the one owner: `003_add_cleaner_role.sql` includes a one-time
+   `update cleaners set role = 'owner' where name = '...'` — run it (or
+   the equivalent) once so someone can reach Team/Book/Edit Job. After
+   that, ownership can be reassigned from the Edit Cleaner modal's Role
+   field instead of SQL.
+3. Set `APP_PASSPHRASE` in `jannas.html` to a real shared passphrase before
    handing devices to staff (see Trusted-device gate below).
-3. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
+4. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
    to the `gh-pages` branch.
-4. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
+5. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
 
 To point the app at a different Supabase project, swap the two Supabase
 constants near the top of `jannas.html` (Project Settings → API for the
@@ -50,11 +57,23 @@ URL and anon/publishable key).
   differ from the client's billing address.
 - **notes** — `id, client_id (FK), text, date` — cleaner-facing notes per
   client.
-- **cleaners** — `id, name, phone, email, active` — staff roster, managed
-  on the Team screen. `jobs.cleaner` is still free text (not a FK to this
-  table) so existing job history isn't disturbed by roster changes.
+- **cleaners** — `id, name, phone, email, active, role` — staff roster,
+  managed on the Team screen (owner-only). `jobs.cleaner` is still free
+  text (not a FK to this table) so existing job history isn't disturbed
+  by roster changes.
 
 Badge/dot colors are derived client-side from job `status`, not stored.
+
+## Roles
+
+`cleaners.role` is `'owner'` (Janna) or `'cleaner'` (everyone else,
+including anyone who self-adds via the trusted-device picker — new rows
+always default to `'cleaner'`). Only the owner can book/edit/delete jobs
+or manage the Team roster; cleaners can view every screen, mark a job
+complete, and add notes. This is a UX-level restriction (buttons/nav
+hidden, mutating handlers double-check `isOwner`) — it is not real
+per-user auth, since the Supabase anon key is still open + RLS-gated the
+same as the rest of the app.
 
 ## Screens
 

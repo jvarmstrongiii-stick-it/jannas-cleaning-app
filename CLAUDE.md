@@ -27,10 +27,27 @@ inline) since there's no dedicated client-creation screen yet.
 mock data — badge and dot colors are derived client-side from `status`
 (dotColor map) or a hash of the row's id (colorFor), not stored.
 
-`cleaners` is a real table (id, name, phone, email, active) managed on the
-Team screen. `jobs.cleaner` stays free text (not a FK) so existing job
-history survives roster changes — the Assign Cleaner dropdown is just
-populated from `cleaners.filter(active)`.
+`cleaners` is a real table (id, name, phone, email, active, role) managed
+on the Team screen (owner-only). `jobs.cleaner` stays free text (not a FK)
+so existing job history survives roster changes — the Assign Cleaner
+dropdown is just populated from `cleaners.filter(active)`.
+
+## Roles: owner vs cleaner
+`cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every
+new row, including self-adds via the picker — nobody can grant themselves
+owner). `isOwner` is computed each render from `cleaners.find(c => c.id
+=== currentUser.id)`, not cached in localStorage, so a role change takes
+effect on the next data refresh without needing to re-auth that device.
+Owner-only: Book Job, Edit/Delete Job, and all of Team (add/edit/deactivate
+cleaners, including who's owner). Everyone (owner + cleaners): view all
+screens, mark a job complete, add notes. This is enforced both in the UI
+(buttons/nav hidden) and inside the mutating handlers via `requireOwner()`
+— defense in depth, though ultimately still just UX since RLS is open.
+There is exactly one bootstrapping wrinkle: since Team is owner-gated and
+new `cleaners` rows default to `'cleaner'`, the very first owner has to be
+promoted directly in SQL (see `supabase/003_add_cleaner_role.sql`) — after
+that, promotions/demotions can happen from the Edit Cleaner modal's Role
+field.
 
 ## Trusted-device gate (not real auth)
 `APP_PASSPHRASE` near the top of jannas.html is a placeholder — set a real
