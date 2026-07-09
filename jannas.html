@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 7;
+const APP_REV = 8;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -359,6 +359,7 @@ const EMPTY_NOTE_FORM = {
   client_id:"", newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:"", text:""
 };
 const EMPTY_CLEANER_FORM = { name:"", phone:"", email:"" };
+const EMPTY_CLIENT_FORM = { name:"", phone:"", email:"", address:"" };
 
 function fmtDate(d) {
   if (!d) return "";
@@ -526,12 +527,15 @@ function JannasDashboard() {
   const [showBookModal, setShowBookModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showCleanerModal, setShowCleanerModal] = useState(false);
+  const [showClientModal, setShowClientModal] = useState(false);
   const [editJob, setEditJob] = useState(null);
   const [editCleaner, setEditCleaner] = useState(null);
+  const [editClient, setEditClient] = useState(null);
 
   const [bookForm, setBookForm] = useState(EMPTY_BOOK_FORM);
   const [noteForm, setNoteForm] = useState(EMPTY_NOTE_FORM);
   const [cleanerForm, setCleanerForm] = useState(EMPTY_CLEANER_FORM);
+  const [clientForm, setClientForm] = useState(EMPTY_CLIENT_FORM);
 
   const [trusted, setTrusted] = useState(() => localStorage.getItem(TRUST_KEY) === 'true');
   const [currentUser, setCurrentUser] = useState(() => {
@@ -671,6 +675,52 @@ function JannasDashboard() {
     }
     if (!form.client_id) throw new Error("Client is required");
     return form.client_id;
+  }
+
+  function resetClientForm() { setClientForm(EMPTY_CLIENT_FORM); }
+
+  // ── CLIENTS ──────────────────────────────────────────────────────
+  async function handleAddClient() {
+    if (!requireOwner()) return;
+    if (!clientForm.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('clients').insert({
+        name: clientForm.name.trim(),
+        phone: clientForm.phone || null,
+        email: clientForm.email || null,
+        address: clientForm.address || null,
+      }).select().single();
+      if (error) throw error;
+
+      setClients(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+      setShowClientModal(false);
+      resetClientForm();
+      showNotif("✓ Client added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleEditClientSave() {
+    if (!requireOwner()) return;
+    if (!editClient.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('clients').update({
+        name: editClient.name.trim(),
+        phone: editClient.phone || null,
+        email: editClient.email || null,
+        address: editClient.address || null,
+      }).eq('id', editClient.id).select().single();
+      if (error) throw error;
+
+      setClients(p => p.map(c => c.id === data.id ? data : c).sort((a,b) => a.name.localeCompare(b.name)));
+      setJobs(p => p.map(j => j.client_id === data.id ? { ...j, client: data.name } : j));
+      setNotes(p => p.map(n => n.client_id === data.id ? { ...n, client: data.name } : n));
+      setEditClient(null);
+      showNotif("✓ Client updated");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
   }
 
   // ── BOOK JOB ──────────────────────────────────────────────────
@@ -1015,10 +1065,13 @@ function JannasDashboard() {
                     <div style={{fontSize:11,color:"var(--slate-mid)"}}>{clientJobs.length} job{clientJobs.length!==1?"s":""}</div>
                   </div>
                   {lastJob && (
-                    <span className={`badge badge-${lastJob.status}`}>
+                    <span className={`badge badge-${lastJob.status}`} style={{marginRight: isOwner ? 10 : 0}}>
                       <span className="badge-dot"></span>{lastJob.status}
                     </span>
                   )}
+                  {isOwner &&
+                    <button className="btn-icon" title="Edit client" onClick={()=>setEditClient({...c})}>✏️</button>
+                  }
                 </div>
               );
             })
@@ -1083,7 +1136,7 @@ function JannasDashboard() {
     dashboard: bookJobButton,
     jobs:      bookJobButton,
     schedule:  bookJobButton,
-    clients:   null,
+    clients:   isOwner ? <button className="btn btn-primary" onClick={()=>setShowClientModal(true)}>+ Add Client</button> : null,
     notes:     <button className="btn btn-primary" onClick={()=>setShowNoteModal(true)}>+ Add Note</button>,
     team:      isOwner ? <button className="btn btn-primary" onClick={()=>setShowCleanerModal(true)}>+ Add Cleaner</button> : null,
   };
@@ -1323,6 +1376,78 @@ function JannasDashboard() {
               <button className="btn btn-danger" onClick={()=>handleDeleteCleaner(editCleaner.id)}>🗑 Delete</button>
               <button className="btn btn-ghost" onClick={()=>setEditCleaner(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleEditCleanerSave}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD CLIENT MODAL */}
+      {showClientModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowClientModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Add Client</div>
+              <button className="modal-close" onClick={()=>setShowClientModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={clientForm.name} onChange={e=>setClientForm(p=>({...p,name:e.target.value}))} placeholder="Full name" />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={clientForm.phone} onChange={e=>setClientForm(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={clientForm.email} onChange={e=>setClientForm(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Address</label>
+                <input className="form-input" value={clientForm.address} onChange={e=>setClientForm(p=>({...p,address:e.target.value}))} placeholder="Billing / primary address" />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowClientModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAddClient}>Add Client</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CLIENT MODAL */}
+      {editClient && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setEditClient(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Edit Client</div>
+              <button className="modal-close" onClick={()=>setEditClient(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={editClient.name} onChange={e=>setEditClient(p=>({...p,name:e.target.value}))} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={editClient.phone||""} onChange={e=>setEditClient(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={editClient.email||""} onChange={e=>setEditClient(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Address</label>
+                <input className="form-input" value={editClient.address||""} onChange={e=>setEditClient(p=>({...p,address:e.target.value}))} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setEditClient(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEditClientSave}>Save Changes</button>
             </div>
           </div>
         </div>

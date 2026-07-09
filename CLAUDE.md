@@ -20,8 +20,10 @@ until that's done the app loads but every fetch/insert will fail.
 ## Data model
 `clients` is a real table (id, name, phone, email, address) — not derived
 from jobs. `jobs.client_id` and `notes.client_id` are foreign keys into it.
-Job/client forms use a client picker (select existing, or "+ New client…"
-inline) since there's no dedicated client-creation screen yet.
+Job/note forms use a client picker (select existing, or "+ New client…"
+inline). There's also now a dedicated "+ Add Client" button and ✏️ edit
+per row on the Clients screen (owner-only, like Book/Edit Job) for
+creating/editing a client without going through a job or note.
 
 `jobs.color` / `notes.color` were dropped from the original prototype's
 mock data — badge and dot colors are derived client-side from `status`
@@ -38,9 +40,11 @@ new row, including self-adds via the picker — nobody can grant themselves
 owner). `isOwner` is computed each render from `cleaners.find(c => c.id
 === currentUser.id)`, not cached in localStorage, so a role change takes
 effect on the next data refresh without needing to re-auth that device.
-Owner-only: Book Job, Edit/Delete Job, and all of Team (add/edit/deactivate
-cleaners, including who's owner). Everyone (owner + cleaners): view all
-screens, mark a job complete, add notes. This is enforced both in the UI
+Owner-only: Book Job, Edit/Delete Job, Add/Edit Client, and all of Team
+(add/edit/deactivate cleaners, including who's owner). Everyone (owner +
+cleaners): view all screens, mark a job complete, add notes (including the
+"+ New client…" inline path in that modal, which is not owner-gated).
+This is enforced both in the UI
 (buttons/nav hidden) and inside the mutating handlers via `requireOwner()`
 — defense in depth, though ultimately still just UX since RLS is open.
 There is exactly one bootstrapping wrinkle: since Team is owner-gated and

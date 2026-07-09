@@ -68,18 +68,21 @@ Badge/dot colors are derived client-side from job `status`, not stored.
 
 `cleaners.role` is `'owner'` (Janna) or `'cleaner'` (everyone else,
 including anyone who self-adds via the trusted-device picker — new rows
-always default to `'cleaner'`). Only the owner can book/edit/delete jobs
-or manage the Team roster; cleaners can view every screen, mark a job
-complete, and add notes. This is a UX-level restriction (buttons/nav
-hidden, mutating handlers double-check `isOwner`) — it is not real
-per-user auth, since the Supabase anon key is still open + RLS-gated the
-same as the rest of the app.
+always default to `'cleaner'`). Only the owner can book/edit/delete jobs,
+add/edit clients, or manage the Team roster; cleaners can view every
+screen, mark a job complete, and add notes (including creating a new
+client inline from that modal — the only client-creation path that isn't
+owner-gated). This is a UX-level restriction (buttons/nav hidden, mutating
+handlers double-check `isOwner`) — it is not real per-user auth, since the
+Supabase anon key is still open + RLS-gated the same as the rest of the
+app.
 
 ## Screens
 
 Dashboard, Jobs, Schedule, Clients, Notes, Team — plus global Book Job /
-Edit Job / Add Note / Add Cleaner / Edit Cleaner modals, all inlined
-directly in the render tree (not inner component functions, to avoid
+Edit Job / Add Note / Add Client / Edit Client / Add Cleaner / Edit
+Cleaner modals, all inlined directly in the render tree (not inner
+component functions, to avoid
 remounting on every keystroke).
 
 ## Trusted-device gate
