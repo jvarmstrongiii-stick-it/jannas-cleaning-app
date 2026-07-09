@@ -10,6 +10,13 @@ on:
 permissions:
   contents: write
 
+# Force overlapping runs to execute one at a time, in order, instead of
+# racing to force-push gh-pages -- without this, two pushes close together
+# can let an earlier commit's deploy finish (and win) after a later one.
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
