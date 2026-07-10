@@ -95,6 +95,12 @@ Cleaner modals, all inlined directly in the render tree (not inner
 component functions, to avoid
 remounting on every keystroke).
 
+Schedule has a Calendar/List toggle (calendar-first by default): a month
+grid with a small status dot per job (colored by `dotColor`, capped with
+a "+N" overflow), where tapping a day expands that day's jobs below the
+grid using the same renderer the List view uses per date group. Owners
+get a "+ Book this day" shortcut that pre-fills the Book Job modal's date.
+
 ## Trusted-device gate
 
 On first load, a device must enter a shared passphrase (`APP_PASSPHRASE`
@@ -108,6 +114,6 @@ re-prompt the passphrase; "Lock device" in the avatar menu does.
 
 ## Deferred (not built yet)
 
-Client-facing login/portal, real per-user auth/permissions, calendar view,
-push notifications, auto-generated recurring jobs, invoicing/payments,
+Client-facing login/portal, real per-user auth/permissions, push
+notifications, auto-generated recurring jobs, invoicing/payments,
 multi-tenant support.

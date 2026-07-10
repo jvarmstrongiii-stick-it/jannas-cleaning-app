@@ -67,6 +67,23 @@ promoted directly in SQL (see `supabase/003_add_cleaner_role.sql`) — after
 that, promotions/demotions can happen from the Edit Cleaner modal's Role
 field.
 
+## Schedule screen: calendar + list toggle
+`scheduleView` (`'calendar'` default, or `'list'`) picks between a month
+grid and the original day-grouped list — both read the same `scheduleDays`
+map, and `renderDayPanel(date, dayJobs)` is the single shared renderer for
+"a day's jobs" so the two views never drift apart. `calendarMonth` is a
+`Date` always built via the numeric `Date(y, m, 1)` constructor (never
+string-parsed) — that's a deliberate, different code path from this
+file's usual `dateString + "T12:00:00"` idiom, which exists only to
+defuse ambiguity when parsing a *stored* `"YYYY-MM-DD"` string; building a
+Date from plain numbers has no such ambiguity, so don't "fix" it by adding
+`T12:00:00` there. `selectedDate` defaults to today (calendar opens with
+today's cell highlighted and its jobs already expanded below the grid).
+The owner-only "+ Book this day" button is a *second* call site that
+seeds `bookForm` (from `EMPTY_BOOK_FORM`, with `date` overridden) before
+calling the existing `setShowBookModal(true)` — the topbar's "+ Book Job"
+button is not the only way into that modal.
+
 ## Trusted-device gate (not real auth)
 `APP_PASSPHRASE` near the top of jannas.html holds the current shared
 passphrase for staff devices. On first load a device must enter it once;

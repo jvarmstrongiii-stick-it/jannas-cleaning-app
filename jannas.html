@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 10;
+const APP_REV = 11;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -216,6 +216,39 @@ const styles = `
   .slot-detail { font-size: 12px; color: var(--slate-mid); margin-top: 2px; }
   .slot-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 
+  /* SCHEDULE CALENDAR */
+  .calendar-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid #f0f4f6; gap: 8px;
+  }
+  .calendar-nav-btns { display: flex; align-items: center; gap: 6px; }
+  .calendar-month-label {
+    font-family: var(--font-display); font-size: 17px; font-weight: 600;
+    color: var(--slate); min-width: 140px; text-align: center;
+  }
+  .calendar-weekdays { display: grid; grid-template-columns: repeat(7,1fr); padding: 8px 8px 0; }
+  .calendar-weekday {
+    text-align: center; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--slate-light); padding-bottom: 6px;
+  }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; padding: 0 8px 12px; }
+  .calendar-cell {
+    min-height: 50px; border-radius: 8px; border: 1px solid #eef2f5; background: #fff;
+    padding: 4px 2px; display: flex; flex-direction: column; align-items: center;
+    cursor: pointer; transition: background 0.15s, border-color 0.15s;
+  }
+  .calendar-cell:hover { border-color: var(--ocean-light); }
+  .calendar-cell-empty { background: transparent; border-color: transparent; cursor: default; }
+  .calendar-cell-today { border-color: var(--ocean); background: var(--ocean-pale); }
+  .calendar-cell-selected { border-color: var(--ocean); background: var(--ocean); }
+  .calendar-cell-selected .calendar-cell-daynum { color: #fff; }
+  .calendar-cell-daynum { font-size: 13px; font-weight: 500; color: var(--slate); }
+  .calendar-cell-dots { display: flex; gap: 2px; margin-top: 3px; flex-wrap: wrap; justify-content: center; }
+  .calendar-cell-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .calendar-cell-more { font-size: 9px; color: var(--slate-light); margin-top: 1px; }
+  .calendar-selected-day { margin-top: 16px; }
+  .calendar-quickbook-btn { margin-bottom: 10px; }
+
   /* CLIENTS */
   .client-row {
     display: flex; align-items: center; gap: 14px; padding: 14px 20px;
@@ -366,6 +399,28 @@ function fmtDate(d) {
   if (!d) return "";
   const dt = new Date(d + "T12:00:00");
   return dt.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+}
+
+function toDateStr(y, m, day) {
+  return `${y}-${String(m+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+}
+
+// Built entirely from the numeric Date(y, m, day) constructor -- never
+// string-parsed -- so unlike the "date + T12:00:00" idiom used elsewhere
+// in this file (which exists specifically to dodge timezone ambiguity
+// when parsing a stored "YYYY-MM-DD" string), there's no ambiguity here
+// to dodge in the first place. Don't "fix" this by adding T12:00:00.
+function buildCalendarCells(monthDate) {
+  const y = monthDate.getFullYear();
+  const m = monthDate.getMonth();
+  const firstWeekday = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  return Array.from({ length: totalCells }, (_, i) => {
+    const dayNum = i - firstWeekday + 1;
+    if (dayNum < 1 || dayNum > daysInMonth) return null;
+    return toDateStr(y, m, dayNum);
+  });
 }
 
 function colorFor(id) {
@@ -552,6 +607,12 @@ function JannasDashboard() {
   const [notif, setNotif] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQ, setSearchQ] = useState("");
+  const [scheduleView, setScheduleView] = useState("calendar"); // "calendar" | "list"
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), 1);
+  });
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [showBookModal, setShowBookModal] = useState(false);
   const [showNoteModal, setShowNoteModal] = useState(false);
   const [showCleanerModal, setShowCleanerModal] = useState(false);
@@ -688,6 +749,8 @@ function JannasDashboard() {
     if (!scheduleDays[j.date]) scheduleDays[j.date] = [];
     scheduleDays[j.date].push(j);
   });
+
+  const calendarCells = buildCalendarCells(calendarMonth);
 
   const propertiesForEditClient = editClient ? properties.filter(p => p.client_id === editClient.id) : [];
 
@@ -1107,34 +1170,104 @@ function JannasDashboard() {
     </div>
   );
 
-  const renderSchedule = () => (
+  const renderDayPanel = (date, dayJobs) => (
+    <div className="schedule-day">
+      <div className="day-header">
+        <div className="day-label">
+          {new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}
+        </div>
+        <div className="day-line"></div>
+        <div className="day-count">{dayJobs.length} job{dayJobs.length!==1?"s":""}</div>
+      </div>
+      {dayJobs.map(j => (
+        <div key={j.id} className="slot">
+          <div className="slot-dot" style={{background: dotColor[j.status] || "#A8BECB"}}></div>
+          <div className="slot-time">{j.time || "—"}</div>
+          <div className="slot-info">
+            <div className="slot-client">{j.client}</div>
+            <div className="slot-detail">{j.type} · {j.cleaner} · {j.address}</div>
+          </div>
+          <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderScheduleList = () => (
     <>
       {Object.keys(scheduleDays).length === 0
         ? <div className="empty"><div className="empty-icon">📅</div><div className="empty-text">No scheduled jobs</div></div>
         : Object.entries(scheduleDays).map(([date, dayJobs]) => (
-            <div key={date} className="schedule-day">
-              <div className="day-header">
-                <div className="day-label">
-                  {new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}
-                </div>
-                <div className="day-line"></div>
-                <div className="day-count">{dayJobs.length} job{dayJobs.length!==1?"s":""}</div>
-              </div>
-              {dayJobs.map(j => (
-                <div key={j.id} className="slot">
-                  <div className="slot-dot" style={{background: dotColor[j.status] || "#A8BECB"}}></div>
-                  <div className="slot-time">{j.time || "—"}</div>
-                  <div className="slot-info">
-                    <div className="slot-client">{j.client}</div>
-                    <div className="slot-detail">{j.type} · {j.cleaner} · {j.address}</div>
-                  </div>
-                  <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
-                </div>
-              ))}
-            </div>
+            <React.Fragment key={date}>{renderDayPanel(date, dayJobs)}</React.Fragment>
           ))
       }
     </>
+  );
+
+  const renderScheduleCalendar = () => (
+    <>
+      <div className="calendar-toolbar">
+        <div className="calendar-nav-btns">
+          <button className="btn-icon" title="Previous month" onClick={()=>setCalendarMonth(d=>new Date(d.getFullYear(), d.getMonth()-1, 1))}>‹</button>
+          <button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:12}} onClick={()=>{
+            const t = new Date();
+            setCalendarMonth(new Date(t.getFullYear(), t.getMonth(), 1));
+            setSelectedDate(t.toISOString().split('T')[0]);
+          }}>Today</button>
+          <button className="btn-icon" title="Next month" onClick={()=>setCalendarMonth(d=>new Date(d.getFullYear(), d.getMonth()+1, 1))}>›</button>
+        </div>
+        <div className="calendar-month-label">{calendarMonth.toLocaleDateString("en-US",{month:"long",year:"numeric"})}</div>
+        <div style={{width:96}}></div>
+      </div>
+      <div className="calendar-weekdays">
+        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(w => <div key={w} className="calendar-weekday">{w}</div>)}
+      </div>
+      <div className="calendar-grid">
+        {calendarCells.map((dateStr, i) => {
+          if (!dateStr) return <div key={i} className="calendar-cell calendar-cell-empty"></div>;
+          const dayJobs = scheduleDays[dateStr] || [];
+          const dayNum = parseInt(dateStr.slice(-2), 10);
+          const isToday = dateStr === todayStr;
+          const isSelected = dateStr === selectedDate;
+          const dots = dayJobs.slice(0, 2);
+          const overflow = dayJobs.length > 2 ? dayJobs.length - 2 : 0;
+          return (
+            <div key={dateStr} className={`calendar-cell ${isToday ? "calendar-cell-today" : ""} ${isSelected ? "calendar-cell-selected" : ""}`}
+              onClick={()=>setSelectedDate(dateStr)}>
+              <div className="calendar-cell-daynum">{dayNum}</div>
+              {dots.length > 0 && (
+                <div className="calendar-cell-dots">
+                  {dots.map(j => <span key={j.id} className="calendar-cell-dot" style={{background: dotColor[j.status] || "#A8BECB"}}></span>)}
+                </div>
+              )}
+              {overflow > 0 && <div className="calendar-cell-more">+{overflow}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="calendar-selected-day">
+        {isOwner && (
+          <button className="btn btn-ghost calendar-quickbook-btn" onClick={() => {
+            if (!requireOwner()) return;
+            setBookForm({ ...EMPTY_BOOK_FORM, date: selectedDate });
+            setShowBookModal(true);
+          }}>+ Book this day</button>
+        )}
+        {renderDayPanel(selectedDate, scheduleDays[selectedDate] || [])}
+      </div>
+    </>
+  );
+
+  const renderSchedule = () => (
+    <div className="card">
+      <div className="filter-tabs">
+        <button className={`filter-tab ${scheduleView==="calendar"?"active":""}`} onClick={()=>setScheduleView("calendar")}>Calendar</button>
+        <button className={`filter-tab ${scheduleView==="list"?"active":""}`} onClick={()=>setScheduleView("list")}>List</button>
+      </div>
+      <div className="card-body" style={{padding:16}}>
+        {scheduleView === "calendar" ? renderScheduleCalendar() : renderScheduleList()}
+      </div>
+    </div>
   );
 
   const renderClients = () => (
