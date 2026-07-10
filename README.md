@@ -19,6 +19,7 @@ schedule, clients, and cleaner notes.
 ├── supabase/schema.sql               # full schema + RLS policies, for a fresh Supabase project
 ├── supabase/002_add_cleaners.sql     # incremental migration adding `cleaners` to an already-live project
 ├── supabase/003_add_cleaner_role.sql # incremental migration adding `cleaners.role` (owner vs cleaner)
+├── supabase/004_add_properties.sql   # incremental migration adding `properties` (saved job-site addresses)
 ├── CLAUDE.md                         # commit/deploy rules for future sessions
 └── .github/workflows/deploy.yml
 ```
@@ -29,17 +30,19 @@ schedule, clients, and cleaner notes.
 live project (`hcoslltuiltkkbqcgtzm`).
 
 1. Run `supabase/schema.sql` against it (SQL Editor → New query) if the
-   `clients` / `jobs` / `notes` / `cleaners` tables aren't there yet. If
-   you already ran an older version that predates `cleaners` or its
-   `role` column, run `supabase/002_add_cleaners.sql` and/or
-   `supabase/003_add_cleaner_role.sql` instead to catch up.
+   `clients` / `jobs` / `notes` / `cleaners` / `properties` tables aren't
+   there yet. If you already ran an older version that predates one of
+   these, run `supabase/002_add_cleaners.sql` /
+   `supabase/003_add_cleaner_role.sql` / `supabase/004_add_properties.sql`
+   (whichever apply) instead to catch up.
 2. Promote the one owner: `003_add_cleaner_role.sql` includes a one-time
    `update cleaners set role = 'owner' where name = '...'` — run it (or
    the equivalent) once so someone can reach Team/Book/Edit Job. After
    that, ownership can be reassigned from the Edit Cleaner modal's Role
    field instead of SQL.
-3. Set `APP_PASSPHRASE` in `jannas.html` to a real shared passphrase before
-   handing devices to staff (see Trusted-device gate below).
+3. `APP_PASSPHRASE` in `jannas.html` holds the shared passphrase for staff
+   devices (see Trusted-device gate below) — update it there if it needs
+   to change.
 4. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
    to the `gh-pages` branch.
 5. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
@@ -61,6 +64,13 @@ URL and anon/publishable key).
   managed on the Team screen (owner-only). `jobs.cleaner` is still free
   text (not a FK to this table) so existing job history isn't disturbed
   by roster changes.
+- **properties** — `id, client_id (FK), label, address` — a client's
+  saved/named job-site addresses (e.g. a renter who has us clean both
+  their own unit and a second rental they manage), managed inline inside
+  the Edit Client modal. `jobs.address` is still free text (not a FK to
+  this table) — the "Saved Property" dropdown in Book/Edit Job just
+  autofills it, so editing/deleting a property never retroactively
+  changes an already-booked job.
 
 Badge/dot colors are derived client-side from job `status`, not stored.
 

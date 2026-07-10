@@ -34,6 +34,20 @@ on the Team screen (owner-only). `jobs.cleaner` stays free text (not a FK)
 so existing job history survives roster changes — the Assign Cleaner
 dropdown is just populated from `cleaners.filter(active)`.
 
+`properties` is a real table (id, client_id FK, label, address) holding a
+client's saved/named job-site addresses (e.g. a renter who has us clean
+both their own unit and a second rental they manage) — managed inline
+inside the (owner-only) Edit Client modal, no separate screen. `jobs.address`
+stays free text (not a FK to this table either), exactly like
+`jobs.cleaner` — the "Saved Property" dropdown in Book/Edit Job is a
+one-way autofill convenience only, so editing/deleting a property never
+retroactively touches already-booked jobs. New clients auto-seed a first
+`properties` row from whatever address was typed at creation time (via
+`resolveClientId()` for the ClientPicker's "+ New client…" inline path,
+and via `handleAddClient()` for the standalone Add Client modal) — that
+insert is wrapped in its own non-fatal try/catch so a failure there never
+blocks the client/job/note creation that triggered it.
+
 ## Roles: owner vs cleaner
 `cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every
 new row, including self-adds via the picker — nobody can grant themselves
@@ -54,9 +68,9 @@ that, promotions/demotions can happen from the Edit Cleaner modal's Role
 field.
 
 ## Trusted-device gate (not real auth)
-`APP_PASSPHRASE` near the top of jannas.html is a placeholder — set a real
-shared passphrase before handing devices to staff. On first load a device
-must enter it once; that unlocks `localStorage[jannas_trusted_v1]="true"`
+`APP_PASSPHRASE` near the top of jannas.html holds the current shared
+passphrase for staff devices. On first load a device must enter it once;
+that unlocks `localStorage[jannas_trusted_v1]="true"`
 permanently on that device (no expiry, no per-user check). After that, the
 user picks their name from `cleaners` (or adds themselves inline if the
 roster is empty) and it's stored as `localStorage[jannas_user_v1]`. This

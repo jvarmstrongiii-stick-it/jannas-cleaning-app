@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 9;
+const APP_REV = 10;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -360,6 +360,7 @@ const EMPTY_NOTE_FORM = {
 };
 const EMPTY_CLEANER_FORM = { name:"", phone:"", email:"" };
 const EMPTY_CLIENT_FORM = { name:"", phone:"", email:"", address:"" };
+const EMPTY_PROPERTY_FORM = { label:"", address:"" };
 
 function fmtDate(d) {
   if (!d) return "";
@@ -416,6 +417,32 @@ function ClientPicker({ clients, form, setForm, label }) {
         </>
       )}
     </>
+  );
+}
+
+// One-way autofill only: picking a saved property just copies its address
+// text into the free-text "Job Site Address" input below. There is no FK
+// from jobs to properties -- jobs.address stays denormalized at booking
+// time, exactly like jobs.cleaner, so later edits/deletes of a property
+// never retroactively touch already-booked jobs.
+function SavedPropertyPicker({ properties, form, setForm }) {
+  if (!form.client_id || form.client_id === NEW_CLIENT_VALUE) return null;
+  const matches = properties.filter(p => p.client_id === form.client_id);
+  if (matches.length === 0) return null;
+  return (
+    <div className="form-group">
+      <label className="form-label">Saved Property</label>
+      <select className="form-select" value=""
+        onChange={e => {
+          const p = matches.find(m => m.id === e.target.value);
+          if (p) setForm(prev => ({ ...prev, address: p.address }));
+        }}>
+        <option value="">Choose a saved address to autofill…</option>
+        {matches.map(p => (
+          <option key={p.id} value={p.id}>{p.label ? `${p.label} — ${p.address}` : p.address}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -521,6 +548,7 @@ function JannasDashboard() {
   const [jobs, setJobs] = useState([]);
   const [notes, setNotes] = useState([]);
   const [cleaners, setCleaners] = useState([]);
+  const [properties, setProperties] = useState([]);
   const [notif, setNotif] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQ, setSearchQ] = useState("");
@@ -536,6 +564,7 @@ function JannasDashboard() {
   const [noteForm, setNoteForm] = useState(EMPTY_NOTE_FORM);
   const [cleanerForm, setCleanerForm] = useState(EMPTY_CLEANER_FORM);
   const [clientForm, setClientForm] = useState(EMPTY_CLIENT_FORM);
+  const [newPropertyForm, setNewPropertyForm] = useState(EMPTY_PROPERTY_FORM);
 
   const [trusted, setTrusted] = useState(() => localStorage.getItem(TRUST_KEY) === 'true');
   const [currentUser, setCurrentUser] = useState(() => {
@@ -552,21 +581,24 @@ function JannasDashboard() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [clientsRes, jobsRes, notesRes, cleanersRes] = await Promise.all([
+      const [clientsRes, jobsRes, notesRes, cleanersRes, propertiesRes] = await Promise.all([
         supabase.from('clients').select('*').order('name'),
         supabase.from('jobs').select('*, clients(id,name)').order('date'),
         supabase.from('notes').select('*, clients(id,name)').order('created_at', { ascending:false }),
         supabase.from('cleaners').select('*').order('name'),
+        supabase.from('properties').select('*').order('created_at'),
       ]);
       if (clientsRes.error) throw clientsRes.error;
       if (jobsRes.error) throw jobsRes.error;
       if (notesRes.error) throw notesRes.error;
       if (cleanersRes.error) throw cleanersRes.error;
+      if (propertiesRes.error) throw propertiesRes.error;
 
       setClients(clientsRes.data || []);
       setJobs((jobsRes.data || []).map(j => ({ ...j, client: j.clients?.name || "Unknown" })));
       setNotes((notesRes.data || []).map(n => ({ ...n, client: n.clients?.name || "Unknown" })));
       setCleaners(cleanersRes.data || []);
+      setProperties(propertiesRes.data || []);
     } catch (err) {
       showNotif("⚠️ Failed to load data: " + err.message);
     } finally {
@@ -657,6 +689,8 @@ function JannasDashboard() {
     scheduleDays[j.date].push(j);
   });
 
+  const propertiesForEditClient = editClient ? properties.filter(p => p.client_id === editClient.id) : [];
+
   function resetBookForm() { setBookForm(EMPTY_BOOK_FORM); }
   function resetNoteForm() { setNoteForm(EMPTY_NOTE_FORM); }
 
@@ -671,6 +705,22 @@ function JannasDashboard() {
       }).select().single();
       if (error) throw error;
       setClients(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+
+      if (form.newClientAddress && form.newClientAddress.trim()) {
+        try {
+          const { data: prop, error: propErr } = await supabase.from('properties').insert({
+            client_id: data.id, label: null, address: form.newClientAddress.trim(),
+          }).select().single();
+          if (propErr) throw propErr;
+          setProperties(p => [...p, prop]);
+        } catch (propErr) {
+          // Non-fatal: the client's own `address` column already has this
+          // text; failing to also seed a `properties` row shouldn't block
+          // booking the job/note that triggered client creation.
+          console.warn("Failed to auto-seed property:", propErr.message);
+        }
+      }
+
       return data.id;
     }
     if (!form.client_id) throw new Error("Client is required");
@@ -693,6 +743,19 @@ function JannasDashboard() {
       if (error) throw error;
 
       setClients(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+
+      if (clientForm.address && clientForm.address.trim()) {
+        try {
+          const { data: prop, error: propErr } = await supabase.from('properties').insert({
+            client_id: data.id, label: null, address: clientForm.address.trim(),
+          }).select().single();
+          if (propErr) throw propErr;
+          setProperties(p => [...p, prop]);
+        } catch (propErr) {
+          console.warn("Failed to auto-seed property:", propErr.message);
+        }
+      }
+
       setShowClientModal(false);
       resetClientForm();
       showNotif("✓ Client added");
@@ -717,7 +780,40 @@ function JannasDashboard() {
       setJobs(p => p.map(j => j.client_id === data.id ? { ...j, client: data.name } : j));
       setNotes(p => p.map(n => n.client_id === data.id ? { ...n, client: data.name } : n));
       setEditClient(null);
+      resetNewPropertyForm();
       showNotif("✓ Client updated");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  function resetNewPropertyForm() { setNewPropertyForm(EMPTY_PROPERTY_FORM); }
+
+  async function handleAddProperty() {
+    if (!requireOwner()) return;
+    if (!newPropertyForm.address.trim()) { showNotif("⚠️ Address is required"); return; }
+    try {
+      const { data, error } = await supabase.from('properties').insert({
+        client_id: editClient.id,
+        label: newPropertyForm.label.trim() || null,
+        address: newPropertyForm.address.trim(),
+      }).select().single();
+      if (error) throw error;
+      setProperties(p => [...p, data]);
+      resetNewPropertyForm();
+      showNotif("✓ Property added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleDeleteProperty(id) {
+    if (!requireOwner()) return;
+    try {
+      const { error } = await supabase.from('properties').delete().eq('id', id);
+      if (error) throw error;
+      setProperties(p => p.filter(pr => pr.id !== id));
+      showNotif("🗑 Property removed");
     } catch (err) {
       showNotif("⚠️ " + err.message);
     }
@@ -1164,6 +1260,7 @@ function JannasDashboard() {
                   {["scheduled","pending","cancelled"].map(s=><option key={s}>{s}</option>)}
                 </select>
               </div>
+              <SavedPropertyPicker properties={properties} form={bookForm} setForm={setBookForm} />
               <div className="form-group">
                 <label className="form-label">Job Site Address</label>
                 <input className="form-input" value={bookForm.address} onChange={e=>setBookForm(p=>({...p,address:e.target.value}))} placeholder="Street address" />
@@ -1228,6 +1325,7 @@ function JannasDashboard() {
                   {["scheduled","pending","completed","cancelled"].map(s=><option key={s}>{s}</option>)}
                 </select>
               </div>
+              <SavedPropertyPicker properties={properties} form={editJob} setForm={setEditJob} />
               <div className="form-group">
                 <label className="form-label">Job Site Address</label>
                 <input className="form-input" value={editJob.address} onChange={e=>setEditJob(p=>({...p,address:e.target.value}))} />
@@ -1419,11 +1517,11 @@ function JannasDashboard() {
 
       {/* EDIT CLIENT MODAL */}
       {editClient && (
-        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setEditClient(null)}>
+        <div className="modal-overlay" onClick={e=>{ if (e.target===e.currentTarget) { setEditClient(null); resetNewPropertyForm(); } }}>
           <div className="modal">
             <div className="modal-header">
               <div className="modal-title">Edit Client</div>
-              <button className="modal-close" onClick={()=>setEditClient(null)}>×</button>
+              <button className="modal-close" onClick={()=>{ setEditClient(null); resetNewPropertyForm(); }}>×</button>
             </div>
             <div className="modal-body">
               <div className="form-group">
@@ -1444,9 +1542,31 @@ function JannasDashboard() {
                 <label className="form-label">Address</label>
                 <input className="form-input" value={editClient.address||""} onChange={e=>setEditClient(p=>({...p,address:e.target.value}))} />
               </div>
+              <div className="form-group">
+                <label className="form-label">Saved Properties</label>
+                {propertiesForEditClient.length === 0 && (
+                  <div style={{fontSize:12,color:"var(--slate-mid)",marginBottom:8}}>No saved properties yet</div>
+                )}
+                {propertiesForEditClient.map(p => (
+                  <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f0f4f6"}}>
+                    <div>
+                      {p.label && <div style={{fontWeight:600,fontSize:13}}>{p.label}</div>}
+                      <div style={{fontSize:12,color:"var(--slate-mid)"}}>{p.address}</div>
+                    </div>
+                    <button className="btn-icon danger" title="Delete property" onClick={()=>handleDeleteProperty(p.id)}>🗑</button>
+                  </div>
+                ))}
+                <div className="form-row" style={{marginTop:8}}>
+                  <input className="form-input" placeholder="Label (optional, e.g. Unit 4B)"
+                    value={newPropertyForm.label} onChange={e=>setNewPropertyForm(p=>({...p, label:e.target.value}))} />
+                  <input className="form-input" placeholder="Address"
+                    value={newPropertyForm.address} onChange={e=>setNewPropertyForm(p=>({...p, address:e.target.value}))} />
+                </div>
+                <button className="btn btn-ghost" style={{marginTop:8}} onClick={handleAddProperty}>+ Add Property</button>
+              </div>
             </div>
             <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={()=>setEditClient(null)}>Cancel</button>
+              <button className="btn btn-ghost" onClick={()=>{ setEditClient(null); resetNewPropertyForm(); }}>Cancel</button>
               <button className="btn btn-primary" onClick={handleEditClientSave}>Save Changes</button>
             </div>
           </div>

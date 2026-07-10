@@ -15,6 +15,24 @@ create table if not exists clients (
   created_at timestamptz not null default now()
 );
 
+-- ── properties ───────────────────────────────────────────────────
+-- A client's saved/named job-site addresses (e.g. a renter who has us
+-- clean both their own unit and a second rental they manage). This is
+-- purely a lookup for autofilling the Book/Edit Job "Job Site Address"
+-- field -- jobs.address stays free text, exactly like jobs.cleaner, so a
+-- job's booked address is never retroactively changed by later property
+-- edits/deletions, and deleting a property is never blocked by past job
+-- references.
+create table if not exists properties (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references clients(id) on delete cascade,
+  label text,
+  address text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists properties_client_id_idx on properties(client_id);
+
 -- ── cleaners ─────────────────────────────────────────────────────
 -- Staff/employees. jobs.cleaner stays a free-text name (not a FK) so
 -- existing job history isn't disturbed by roster changes; the Book/Edit
@@ -66,6 +84,7 @@ alter table clients enable row level security;
 alter table jobs enable row level security;
 alter table notes enable row level security;
 alter table cleaners enable row level security;
+alter table properties enable row level security;
 
 create policy "anon full access on clients" on clients
   for all to anon using (true) with check (true);
@@ -77,4 +96,7 @@ create policy "anon full access on notes" on notes
   for all to anon using (true) with check (true);
 
 create policy "anon full access on cleaners" on cleaners
+  for all to anon using (true) with check (true);
+
+create policy "anon full access on properties" on properties
   for all to anon using (true) with check (true);
