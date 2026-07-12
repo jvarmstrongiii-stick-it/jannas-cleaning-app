@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 13;
+const APP_REV = 14;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -1109,7 +1109,11 @@ function JannasDashboard() {
         </div>
         <div className="card-body">
           {[...jobs].reverse().slice(0,4).map(j => (
-            <div key={j.id} className="job-row">
+            <div key={j.id} className="job-row" style={{cursor:"pointer"}} onClick={() => {
+              setSearchQ(j.client);
+              setStatusFilter("all");
+              setActiveNav("jobs");
+            }}>
               <div style={{width:8,height:8,borderRadius:"50%",background:dotColor[j.status]||"#A8BECB",flexShrink:0,marginTop:6}}></div>
               <div className="job-info">
                 <div className="job-top">
