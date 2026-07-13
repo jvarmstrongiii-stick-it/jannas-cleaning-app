@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 15;
+const APP_REV = 16;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -737,7 +737,7 @@ function JannasDashboard() {
 
   // ── FILTERED JOBS ─────────────────────────────────────────────
   const filteredJobs = jobs.filter(j => {
-    const matchStatus = statusFilter === "all" || j.status === statusFilter;
+    const matchStatus = statusFilter === "all" ? j.status !== "completed" : j.status === statusFilter;
     const q = searchQ.toLowerCase();
     const matchSearch = !q || (j.client||"").toLowerCase().includes(q) || (j.address||"").toLowerCase().includes(q) || (j.type||"").toLowerCase().includes(q);
     return matchStatus && matchSearch;
