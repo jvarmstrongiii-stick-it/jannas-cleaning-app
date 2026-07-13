@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 14;
+const APP_REV = 15;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -956,6 +956,20 @@ function JannasDashboard() {
     });
   }
 
+  function duplicateJob(j) {
+    if (!requireOwner()) return;
+    setBookForm({
+      ...EMPTY_BOOK_FORM,
+      client_id: j.client_id,
+      address: j.address,
+      type: j.type,
+      recurring: j.recurring,
+      cleaner: j.cleaner,
+      notes: j.notes,
+    });
+    setShowBookModal(true);
+  }
+
   async function handleMarkComplete(id) {
     try {
       const { error } = await supabase.from('jobs').update({ status: "completed" }).eq('id', id);
@@ -1167,8 +1181,11 @@ function JannasDashboard() {
                       ✓
                     </button>
                   }
-                  {isOwner &&
+                  {isOwner && j.status !== "completed" &&
                     <button className="btn-icon" title="Edit job" onClick={()=>openEditJob(j)}>✏️</button>
+                  }
+                  {isOwner && j.status === "completed" &&
+                    <button className="btn-icon" title="Duplicate as new appointment" onClick={()=>duplicateJob(j)}>🔁</button>
                   }
                 </div>
               </div>
