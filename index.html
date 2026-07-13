@@ -1,0 +1,1792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Janna's Cleaning Service</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const APP_REV = 17;
+
+// ── Supabase config ──────────────────────────────────────────────
+const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhjb3NsbHR1aWx0a2ticWNndHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzMTE3NDUsImV4cCI6MjA5ODg4Nzc0NX0.kt1H1GxBo1-GHnr3ebMibbII8_KMXr9PnkvqAFeyKr4";
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ── Trusted-device passphrase gate ────────────────────────────────
+// Lightweight device gate, not real auth (RLS still uses the open anon
+// key above). TODO: set a real shared passphrase before handing devices
+// to staff.
+const APP_PASSPHRASE = "Bologna";
+const TRUST_KEY = "jannas_trusted_v1";
+const USER_KEY = "jannas_user_v1";
+
+const styles = `
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --ocean: #2E7D9E;
+    --ocean-light: #4FA8C9;
+    --ocean-pale: #E8F4F8;
+    --sand: #F5EFE0;
+    --sand-dark: #E8D9B8;
+    --foam: #FAFCFD;
+    --slate: #2C3E50;
+    --slate-mid: #3D5568;
+    --slate-light: #5D7A8A;
+    --coral: #E07B5A;
+    --sage: #6BAF8A;
+    --font-display: 'Cormorant Garamond', serif;
+    --font-body: 'DM Sans', sans-serif;
+  }
+  body { font-family: var(--font-body); background: var(--foam); color: var(--slate); }
+  .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* TOP HEADER */
+  .topbar {
+    padding: 14px 24px; background: var(--slate);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 12px; }
+  .brand-icon { font-size: 20px; }
+  .brand-name { font-family: var(--font-display); font-size: 22px; font-weight: 600; color: #fff; line-height: 1; }
+  .brand-sub { font-size: 10px; color: var(--slate-light); letter-spacing: 2px; text-transform: uppercase; }
+  .topbar-right { display: flex; align-items: center; gap: 10px; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%; background: var(--ocean);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600; color: #fff;
+  }
+
+  /* NAV BAR (under header) */
+  .navbar {
+    background: #fff; border-bottom: 1px solid #eef2f5;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px; flex-shrink: 0; gap: 4px;
+    overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .navbar::-webkit-scrollbar { display: none; }
+  .nav-tabs { display: flex; gap: 2px; flex-shrink: 0; }
+  .nav-item {
+    display: flex; align-items: center; gap: 7px; padding: 12px 16px;
+    cursor: pointer; font-size: 13px; font-weight: 500;
+    color: var(--slate-mid); border-bottom: 2px solid transparent;
+    transition: all 0.2s; white-space: nowrap;
+  }
+  .nav-item:hover { color: var(--ocean); }
+  .nav-item.active { color: var(--ocean); border-bottom-color: var(--ocean); }
+  .nav-icon { font-size: 15px; }
+  .page-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--slate); padding: 10px 0; }
+
+  /* MAIN */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .btn {
+    padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+    font-family: var(--font-body); font-size: 13px; font-weight: 500;
+    transition: all 0.2s;
+  }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary { background: var(--ocean); color: #fff; }
+  .btn-primary:hover { background: var(--ocean-light); }
+  .btn-ghost { background: transparent; color: var(--slate-mid); border: 1px solid #dde3e8; }
+  .btn-ghost:hover { background: var(--ocean-pale); color: var(--ocean); border-color: var(--ocean-light); }
+  .btn-danger { background: #FEF0EC; color: var(--coral); }
+  .btn-danger:hover { background: var(--coral); color: #fff; }
+  .content { flex: 1; overflow-y: auto; padding: 24px; }
+
+  /* NOTIFICATION */
+  .notif {
+    position: fixed; top: 20px; right: 20px; z-index: 9999;
+    background: var(--slate); color: #fff; padding: 12px 20px;
+    border-radius: 10px; font-size: 13px; font-weight: 500;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform: translateX(20px); } to { opacity:1; transform: translateX(0); } }
+
+  /* STATS */
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .stat-card {
+    background: #fff; border-radius: 12px; padding: 18px;
+    border: 1px solid #eef2f5; position: relative; overflow: hidden;
+  }
+  .stat-card::after {
+    content: ''; position: absolute; top: -20px; right: -20px;
+    width: 80px; height: 80px; border-radius: 50%;
+    background: var(--accent, var(--ocean-pale)); opacity: 0.5;
+  }
+  .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--slate-mid); margin-bottom: 8px; }
+  .stat-value { font-family: var(--font-display); font-size: 36px; font-weight: 700; color: var(--slate); line-height: 1; }
+  .stat-sub { font-size: 11px; color: var(--slate-light); margin-top: 4px; }
+
+  /* CARDS */
+  .card { background: #fff; border-radius: 12px; border: 1px solid #eef2f5; overflow: hidden; margin-bottom: 16px; }
+  .card-header {
+    padding: 16px 20px; border-bottom: 1px solid #f0f4f6;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .card-title { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--slate); }
+  .card-body { padding: 0; }
+
+  /* BADGES */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500;
+  }
+  .badge-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+  .badge-scheduled { background: #E8F4F8; color: #2E7D9E; }
+  .badge-completed { background: #E8F5EE; color: #2E7A4F; }
+  .badge-cancelled { background: #FEF0EC; color: #C0442A; }
+  .badge-pending { background: #FFF8EC; color: #B07A20; }
+  .badge-recurring { background: var(--sand); color: #8B6914; }
+
+  /* JOB ROWS */
+  .job-row {
+    padding: 14px 18px; border-bottom: 1px solid #f0f4f6;
+    display: flex; align-items: flex-start; gap: 12px;
+    transition: background 0.15s;
+  }
+  .job-row:hover { background: #fafcfe; }
+  .job-row:last-child { border-bottom: none; }
+  .job-info { flex: 1; min-width: 0; }
+  .job-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .job-client { font-size: 14px; font-weight: 600; color: var(--slate); }
+  .job-meta { font-size: 12px; color: var(--slate-mid); margin-bottom: 3px; }
+  .job-details { font-size: 12px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .job-time { color: var(--ocean); font-weight: 500; }
+  .job-type { color: var(--slate-mid); }
+  .job-actions { display: flex; gap: 6px; flex-shrink: 0; padding-top: 2px; }
+  .btn-icon {
+    background: var(--ocean-pale); border: none; cursor: pointer;
+    width: 28px; height: 28px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; transition: all 0.2s; color: var(--ocean);
+  }
+  .btn-icon:hover { background: var(--ocean); color: #fff; }
+  .btn-icon.danger { background: #FEF0EC; color: var(--coral); }
+  .btn-icon.danger:hover { background: var(--coral); color: #fff; }
+
+  /* SEARCH & FILTERS */
+  .search-bar {
+    display: flex; gap: 10px; padding: 14px 18px;
+    border-bottom: 1px solid #f0f4f6; flex-wrap: wrap;
+  }
+  .search-input {
+    flex: 1; min-width: 180px; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid #dde3e8; font-family: var(--font-body); font-size: 13px;
+    color: var(--slate); outline: none; transition: border 0.2s;
+  }
+  .search-input:focus { border-color: var(--ocean-light); }
+  .filter-tabs { display: flex; gap: 4px; flex-wrap: wrap; padding: 10px 18px; border-bottom: 1px solid #f0f4f6; }
+  .filter-tab {
+    padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;
+    cursor: pointer; border: 1px solid #dde3e8; color: var(--slate-mid);
+    background: transparent; transition: all 0.2s;
+  }
+  .filter-tab.active { background: var(--ocean); color: #fff; border-color: var(--ocean); }
+
+  /* SCHEDULE */
+  .schedule-day { margin-bottom: 20px; }
+  .day-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .day-label { font-family: var(--font-display); font-size: 18px; font-weight: 600; color: var(--slate); }
+  .day-line { flex: 1; height: 1px; background: #eef2f5; }
+  .day-count { font-size: 11px; color: var(--slate-light); }
+  .slot {
+    background: #fff; border-radius: 10px; border: 1px solid #eef2f5;
+    padding: 12px 16px; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 14px;
+    transition: box-shadow 0.2s;
+  }
+  .slot:hover { box-shadow: 0 2px 12px rgba(46,125,158,0.1); }
+  .slot-time { font-size: 13px; font-weight: 600; color: var(--ocean); min-width: 60px; }
+  .slot-info { flex: 1; }
+  .slot-client { font-size: 14px; font-weight: 500; color: var(--slate); }
+  .slot-detail { font-size: 12px; color: var(--slate-mid); margin-top: 2px; }
+  .slot-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* SCHEDULE CALENDAR */
+  .calendar-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid #f0f4f6; gap: 8px;
+  }
+  .calendar-nav-btns { display: flex; align-items: center; gap: 6px; }
+  .calendar-month-label {
+    font-family: var(--font-display); font-size: 17px; font-weight: 600;
+    color: var(--slate); min-width: 140px; text-align: center;
+  }
+  .calendar-weekdays { display: grid; grid-template-columns: repeat(7,1fr); padding: 8px 8px 0; }
+  .calendar-weekday {
+    text-align: center; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--slate-light); padding-bottom: 6px;
+  }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 4px; padding: 0 8px 12px; }
+  .calendar-cell {
+    min-height: 50px; border-radius: 8px; border: 1px solid #eef2f5; background: #fff;
+    padding: 4px 2px; display: flex; flex-direction: column; align-items: center;
+    cursor: pointer; transition: background 0.15s, border-color 0.15s;
+  }
+  .calendar-cell:hover { border-color: var(--ocean-light); }
+  .calendar-cell-empty { background: transparent; border-color: transparent; cursor: default; }
+  .calendar-cell-today { border-color: var(--ocean); background: var(--ocean-pale); }
+  .calendar-cell-selected { border-color: var(--ocean); background: var(--ocean); }
+  .calendar-cell-selected .calendar-cell-daynum { color: #fff; }
+  .calendar-cell-daynum { font-size: 13px; font-weight: 500; color: var(--slate); }
+  .calendar-cell-dots { display: flex; gap: 2px; margin-top: 3px; flex-wrap: wrap; justify-content: center; }
+  .calendar-cell-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+  .calendar-cell-more { font-size: 9px; color: var(--slate-light); margin-top: 1px; }
+  .calendar-selected-day { margin-top: 16px; }
+  .calendar-quickbook-btn { margin-bottom: 10px; }
+
+  /* CLIENTS */
+  .client-row {
+    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+    border-bottom: 1px solid #f0f4f6; transition: background 0.15s;
+  }
+  .client-row:hover { background: #fafcfe; }
+  .client-row:last-child { border-bottom: none; }
+  .client-avatar {
+    width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 600; color: #fff; flex-shrink: 0;
+  }
+  .client-name { font-size: 14px; font-weight: 600; color: var(--slate); }
+  .client-addr { font-size: 12px; color: var(--slate-mid); margin-top: 2px; }
+  .client-actions { display: flex; gap: 6px; margin-left: auto; }
+
+  /* NOTES */
+  .note-item {
+    border-radius: 10px; border: 1px solid #eef2f5;
+    border-left: 4px solid var(--ocean); background: #fff;
+  }
+  .note-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .note-client { font-weight: 600; font-size: 13px; color: var(--slate); }
+  .note-date { font-size: 11px; color: var(--slate-light); }
+  .note-text { font-size: 13px; color: var(--slate-mid); line-height: 1.5; }
+
+  /* MODAL */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; padding: 20px;
+  }
+  .modal {
+    background: #fff; border-radius: 16px; width: 100%; max-width: 480px;
+    max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+  }
+  .modal-header {
+    padding: 20px 24px 16px; border-bottom: 1px solid #eef2f5;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .modal-title { font-family: var(--font-display); font-size: 22px; font-weight: 600; }
+  .modal-close {
+    background: none; border: none; cursor: pointer; font-size: 20px;
+    color: var(--slate-mid); line-height: 1; padding: 2px 6px; border-radius: 6px;
+  }
+  .modal-close:hover { background: #f0f4f6; }
+  .modal-body { padding: 20px 24px; }
+  .modal-footer { padding: 16px 24px; border-top: 1px solid #eef2f5; display: flex; gap: 10px; justify-content: flex-end; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-size: 12px; font-weight: 500; color: var(--slate-mid); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
+  .form-input, .form-select, .form-textarea {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    border: 1px solid #dde3e8; font-family: var(--font-body); font-size: 14px;
+    color: var(--slate); outline: none; transition: border 0.2s;
+    background: #fff;
+  }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--ocean-light); }
+  .form-textarea { resize: vertical; min-height: 80px; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-hint { font-size: 11px; color: var(--slate-light); margin-top: 6px; }
+
+  /* EMPTY STATE */
+  .empty { text-align: center; padding: 48px 24px; color: var(--slate-light); }
+  .empty-icon { font-size: 36px; margin-bottom: 12px; }
+  .empty-text { font-size: 14px; }
+
+  /* FOOTER */
+  .app-footer { text-align: center; padding: 8px; font-size: 10px; color: var(--slate-light); flex-shrink: 0; }
+
+  /* GATE / USER PICKER */
+  .gate-screen {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: var(--slate); padding: 24px;
+  }
+  .gate-card {
+    background: #fff; border-radius: 16px; padding: 32px 28px; width: 100%; max-width: 360px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;
+  }
+  .gate-icon { font-size: 36px; margin-bottom: 8px; }
+  .gate-title { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--slate); margin-bottom: 4px; }
+  .gate-sub { font-size: 13px; color: var(--slate-mid); margin-bottom: 20px; }
+  .gate-error { color: var(--coral); font-size: 12px; margin-top: 8px; }
+  .name-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-top: 8px; }
+  .name-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 16px 8px; border-radius: 12px; border: 1px solid #eef2f5; background: #fff;
+    cursor: pointer; transition: all 0.2s; font-family: var(--font-body);
+  }
+  .name-btn:hover { border-color: var(--ocean-light); background: var(--ocean-pale); }
+  .name-avatar {
+    width: 44px; height: 44px; border-radius: 50%; color: #fff; font-weight: 600; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .name-label { font-size: 13px; font-weight: 500; color: var(--slate); }
+
+  /* USER MENU */
+  .user-menu-wrap { position: relative; }
+  .user-menu {
+    position: absolute; top: 40px; right: 0; background: #fff; border-radius: 10px;
+    border: 1px solid #eef2f5; box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    min-width: 160px; z-index: 1001; overflow: hidden;
+  }
+  .user-menu-header { padding: 10px 14px; font-size: 12px; color: var(--slate-mid); border-bottom: 1px solid #f0f4f6; }
+  .user-menu-item {
+    padding: 10px 14px; font-size: 13px; color: var(--slate); cursor: pointer; transition: background 0.15s;
+  }
+  .user-menu-item:hover { background: var(--ocean-pale); }
+
+  /* ACTIVE / INACTIVE BADGES (Team) */
+  .badge-active { background: #E8F5EE; color: #2E7A4F; }
+  .badge-inactive { background: #F1F1F1; color: #8a94a3; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--sand-dark); border-radius: 4px; }
+
+  @media (max-width: 600px) {
+    .content { padding: 16px; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .topbar { padding: 12px 16px; }
+    .nav-item { padding: 10px 10px; font-size: 12px; }
+    .nav-icon { font-size: 14px; }
+  }
+`;
+
+const SERVICE_TYPES = ["Standard Clean","Deep Clean","Move-In Clean","Move-Out Clean","Post-Construction","Window Cleaning"];
+const RECURRENCE = ["One-time","Weekly","Bi-weekly","Monthly"];
+const STATUS_TABS = ["all","scheduled","pending","completed","cancelled"];
+const NEW_CLIENT_VALUE = "__new__";
+const PALETTE = ["#4FA8C9","#6BAF8A","#E07B5A","#9B7BC4","#E8A838","#5BA5A5"];
+const dotColor = { scheduled:"#2E7D9E", completed:"#2E7A4F", pending:"#B07A20", cancelled:"#C0442A" };
+
+const EMPTY_BOOK_FORM = {
+  client_id:"", newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:"",
+  address:"", type:"Standard Clean", recurring:"One-time",
+  date:"", time:"", cleaner:"Unassigned", notes:"", status:"scheduled"
+};
+const EMPTY_NOTE_FORM = {
+  client_id:"", newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:"", text:""
+};
+const EMPTY_CLEANER_FORM = { name:"", phone:"", email:"" };
+const EMPTY_CLIENT_FORM = { name:"", phone:"", email:"", address:"" };
+const EMPTY_PROPERTY_FORM = { label:"", address:"" };
+
+function fmtDate(d) {
+  if (!d) return "";
+  const dt = new Date(d + "T12:00:00");
+  return dt.toLocaleDateString("en-US", { month:"short", day:"numeric" });
+}
+
+function toDateStr(y, m, day) {
+  return `${y}-${String(m+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+}
+
+// Built entirely from the numeric Date(y, m, day) constructor -- never
+// string-parsed -- so unlike the "date + T12:00:00" idiom used elsewhere
+// in this file (which exists specifically to dodge timezone ambiguity
+// when parsing a stored "YYYY-MM-DD" string), there's no ambiguity here
+// to dodge in the first place. Don't "fix" this by adding T12:00:00.
+function buildCalendarCells(monthDate) {
+  const y = monthDate.getFullYear();
+  const m = monthDate.getMonth();
+  const firstWeekday = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const totalCells = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+  return Array.from({ length: totalCells }, (_, i) => {
+    const dayNum = i - firstWeekday + 1;
+    if (dayNum < 1 || dayNum > daysInMonth) return null;
+    return toDateStr(y, m, dayNum);
+  });
+}
+
+function colorFor(id) {
+  if (!id) return PALETTE[0];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  return PALETTE[Math.abs(hash) % PALETTE.length];
+}
+
+// Reusable client picker: select an existing client, or add a brand-new one
+// inline (no dedicated client-creation screen in v1).
+function ClientPicker({ clients, form, setForm, label }) {
+  const isNew = form.client_id === NEW_CLIENT_VALUE;
+  return (
+    <>
+      <div className="form-group">
+        <label className="form-label">{label || "Client"} *</label>
+        <select className="form-select" value={form.client_id}
+          onChange={e=>setForm(p=>({...p, client_id:e.target.value}))}>
+          <option value="">Select a client…</option>
+          {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          <option value={NEW_CLIENT_VALUE}>+ New client…</option>
+        </select>
+      </div>
+      {isNew && (
+        <>
+          <div className="form-group">
+            <label className="form-label">New Client Name *</label>
+            <input className="form-input" value={form.newClientName}
+              onChange={e=>setForm(p=>({...p, newClientName:e.target.value}))} placeholder="Full name" />
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Phone</label>
+              <input className="form-input" value={form.newClientPhone}
+                onChange={e=>setForm(p=>({...p, newClientPhone:e.target.value}))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input className="form-input" value={form.newClientEmail}
+                onChange={e=>setForm(p=>({...p, newClientEmail:e.target.value}))} />
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Client Address</label>
+            <input className="form-input" value={form.newClientAddress}
+              onChange={e=>setForm(p=>({...p, newClientAddress:e.target.value}))} placeholder="Billing / primary address" />
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+// One-way autofill only: picking a saved property just copies its address
+// text into the free-text "Job Site Address" input below. There is no FK
+// from jobs to properties -- jobs.address stays denormalized at booking
+// time, exactly like jobs.cleaner, so later edits/deletes of a property
+// never retroactively touch already-booked jobs.
+function SavedPropertyPicker({ properties, form, setForm }) {
+  if (!form.client_id || form.client_id === NEW_CLIENT_VALUE) return null;
+  const matches = properties.filter(p => p.client_id === form.client_id);
+  if (matches.length === 0) return null;
+  return (
+    <div className="form-group">
+      <label className="form-label">Saved Property</label>
+      <select className="form-select" value=""
+        onChange={e => {
+          const p = matches.find(m => m.id === e.target.value);
+          if (p) setForm(prev => ({ ...prev, address: p.address }));
+        }}>
+        <option value="">Choose a saved address to autofill…</option>
+        {matches.map(p => (
+          <option key={p.id} value={p.id}>{p.label ? `${p.label} — ${p.address}` : p.address}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function PassphraseGate({ onUnlock }) {
+  const [value, setValue] = useState("");
+  const [error, setError] = useState("");
+
+  function submit(e) {
+    e.preventDefault();
+    if (value === APP_PASSPHRASE) {
+      onUnlock();
+    } else {
+      setError("Incorrect passphrase");
+    }
+  }
+
+  return (
+    <>
+      <style>{styles}</style>
+      <div className="gate-screen">
+        <form className="gate-card" onSubmit={submit}>
+          <div className="gate-icon">🧹</div>
+          <div className="gate-title">Janna's Cleaning Service</div>
+          <div className="gate-sub">Enter the team passphrase to unlock this device</div>
+          <input className="form-input" type="password" value={value}
+            onChange={e=>{ setValue(e.target.value); setError(""); }}
+            placeholder="Passphrase" autoFocus />
+          {error && <div className="gate-error">{error}</div>}
+          <div style={{marginTop:16}}>
+            <button className="btn btn-primary" type="submit" style={{width:"100%"}}>Unlock</button>
+          </div>
+        </form>
+      </div>
+    </>
+  );
+}
+
+function UserPicker({ cleaners, loading, onSelect, onAddNew }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const active = cleaners.filter(c => c.active);
+
+  async function submitAdd(e) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setBusy(true);
+    try {
+      await onAddNew(name.trim());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <style>{styles}</style>
+      <div className="gate-screen">
+        <div className="gate-card" style={{maxWidth:420}}>
+          <div className="gate-icon">👋</div>
+          <div className="gate-title">Who's this?</div>
+          <div className="gate-sub">Pick your name to continue</div>
+          {loading
+            ? <div className="empty-text">Loading team…</div>
+            : active.length > 0 && (
+                <div className="name-grid">
+                  {active.map(c => (
+                    <button key={c.id} className="name-btn" onClick={()=>onSelect(c)}>
+                      <div className="name-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
+                      <div className="name-label">{c.name}</div>
+                    </button>
+                  ))}
+                </div>
+              )
+          }
+          {!loading && !showAdd && (
+            <button className="btn btn-ghost" style={{marginTop:16,width:"100%"}} onClick={()=>setShowAdd(true)}>
+              + Add yourself
+            </button>
+          )}
+          {!loading && showAdd && (
+            <form onSubmit={submitAdd} style={{marginTop:16,textAlign:"left"}}>
+              <div className="form-group">
+                <label className="form-label">Your Name</label>
+                <input className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="Full name" autoFocus />
+              </div>
+              <button className="btn btn-primary" type="submit" style={{width:"100%"}} disabled={busy}>
+                {busy ? "Adding…" : "Add & Continue"}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function JannasDashboard() {
+  const [activeNav, setActiveNav] = useState("dashboard");
+
+  const [loading, setLoading] = useState(true);
+  const [clients, setClients] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [cleaners, setCleaners] = useState([]);
+  const [properties, setProperties] = useState([]);
+  const [notif, setNotif] = useState(null);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [searchQ, setSearchQ] = useState("");
+  const [scheduleView, setScheduleView] = useState("calendar"); // "calendar" | "list"
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const t = new Date();
+    return new Date(t.getFullYear(), t.getMonth(), 1);
+  });
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [showBookModal, setShowBookModal] = useState(false);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [showCleanerModal, setShowCleanerModal] = useState(false);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [editJob, setEditJob] = useState(null);
+  const [editCleaner, setEditCleaner] = useState(null);
+  const [editClient, setEditClient] = useState(null);
+
+  const [bookForm, setBookForm] = useState(EMPTY_BOOK_FORM);
+  const [noteForm, setNoteForm] = useState(EMPTY_NOTE_FORM);
+  const [cleanerForm, setCleanerForm] = useState(EMPTY_CLEANER_FORM);
+  const [clientForm, setClientForm] = useState(EMPTY_CLIENT_FORM);
+  const [newPropertyForm, setNewPropertyForm] = useState(EMPTY_PROPERTY_FORM);
+
+  const [trusted, setTrusted] = useState(() => localStorage.getItem(TRUST_KEY) === 'true');
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; }
+  });
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  useEffect(() => {
+    if (notif) { const t = setTimeout(() => setNotif(null), 3000); return () => clearTimeout(t); }
+  }, [notif]);
+
+  function showNotif(msg) { setNotif(msg); }
+
+  async function loadAll() {
+    setLoading(true);
+    try {
+      const [clientsRes, jobsRes, notesRes, cleanersRes, propertiesRes] = await Promise.all([
+        supabase.from('clients').select('*').order('name'),
+        supabase.from('jobs').select('*, clients(id,name)').order('date'),
+        supabase.from('notes').select('*, clients(id,name)').order('created_at', { ascending:false }),
+        supabase.from('cleaners').select('*').order('name'),
+        supabase.from('properties').select('*').order('created_at'),
+      ]);
+      if (clientsRes.error) throw clientsRes.error;
+      if (jobsRes.error) throw jobsRes.error;
+      if (notesRes.error) throw notesRes.error;
+      if (cleanersRes.error) throw cleanersRes.error;
+      if (propertiesRes.error) throw propertiesRes.error;
+
+      setClients(clientsRes.data || []);
+      setJobs((jobsRes.data || []).map(j => ({ ...j, client: j.clients?.name || "Unknown" })));
+      setNotes((notesRes.data || []).map(n => ({ ...n, client: n.clients?.name || "Unknown" })));
+      setCleaners(cleanersRes.data || []);
+      setProperties(propertiesRes.data || []);
+    } catch (err) {
+      showNotif("⚠️ Failed to load data: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadAll(); }, []);
+
+  async function handleAddSelfCleaner(name) {
+    try {
+      const { data, error } = await supabase.from('cleaners').insert({ name, active: true }).select().single();
+      if (error) throw error;
+      setCleaners(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+      const u = { id: data.id, name: data.name };
+      localStorage.setItem(USER_KEY, JSON.stringify(u));
+      setCurrentUser(u);
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  if (!trusted) {
+    return (
+      <>
+        {notif && <div className="notif">{notif}</div>}
+        <PassphraseGate onUnlock={() => { localStorage.setItem(TRUST_KEY, 'true'); setTrusted(true); }} />
+      </>
+    );
+  }
+  if (!currentUser) {
+    return (
+      <>
+        {notif && <div className="notif">{notif}</div>}
+        <UserPicker cleaners={cleaners} loading={loading} onAddNew={handleAddSelfCleaner} onSelect={(c) => {
+          const u = { id: c.id, name: c.name };
+          localStorage.setItem(USER_KEY, JSON.stringify(u));
+          setCurrentUser(u);
+        }} />
+      </>
+    );
+  }
+
+  const currentCleaner = cleaners.find(c => c.id === currentUser.id);
+  const isOwner = currentCleaner?.role === 'owner';
+
+  function requireOwner() {
+    if (!isOwner) { showNotif("⚠️ Only Janna can do that"); return false; }
+    return true;
+  }
+
+  const navItems = [
+    { id:"dashboard", icon:"🏠", label:"Dashboard" },
+    { id:"jobs",      icon:"📋", label:"Jobs" },
+    { id:"schedule",  icon:"📅", label:"Schedule" },
+    { id:"clients",   icon:"👥", label:"Clients" },
+    { id:"notes",     icon:"📝", label:"Notes" },
+    ...(isOwner ? [{ id:"team", icon:"🧺", label:"Team" }] : []),
+  ];
+
+  const pageTitles = {
+    dashboard: "Good morning, Janna ☀️",
+    jobs: "Jobs",
+    schedule: "Schedule",
+    clients: "Clients",
+    notes: "Notes"
+  };
+
+  // ── STATS ──────────────────────────────────────────────────────
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayJobs = jobs.filter(j => j.date === todayStr && j.status !== "cancelled");
+  const scheduledJobs = jobs.filter(j => j.status === "scheduled");
+  const completedJobs = jobs.filter(j => j.status === "completed");
+  const pendingJobs = jobs.filter(j => j.status === "pending");
+
+  // ── FILTERED JOBS ─────────────────────────────────────────────
+  const filteredJobs = jobs.filter(j => {
+    const matchStatus = statusFilter === "all" ? (j.status !== "completed" && j.status !== "cancelled") : j.status === statusFilter;
+    const q = searchQ.toLowerCase();
+    const matchSearch = !q || (j.client||"").toLowerCase().includes(q) || (j.address||"").toLowerCase().includes(q) || (j.type||"").toLowerCase().includes(q);
+    return matchStatus && matchSearch;
+  });
+
+  // ── SCHEDULE (group by date) ──────────────────────────────────
+  const scheduleDays = {};
+  [...jobs].filter(j => j.status !== "cancelled").sort((a,b) => a.date.localeCompare(b.date)).forEach(j => {
+    if (!scheduleDays[j.date]) scheduleDays[j.date] = [];
+    scheduleDays[j.date].push(j);
+  });
+
+  const calendarCells = buildCalendarCells(calendarMonth);
+
+  const propertiesForEditClient = editClient ? properties.filter(p => p.client_id === editClient.id) : [];
+
+  function resetBookForm() { setBookForm(EMPTY_BOOK_FORM); }
+  function resetNoteForm() { setNoteForm(EMPTY_NOTE_FORM); }
+
+  async function resolveClientId(form) {
+    if (form.client_id === NEW_CLIENT_VALUE) {
+      if (!form.newClientName.trim()) throw new Error("New client name is required");
+      const { data, error } = await supabase.from('clients').insert({
+        name: form.newClientName.trim(),
+        phone: form.newClientPhone || null,
+        email: form.newClientEmail || null,
+        address: form.newClientAddress || null,
+      }).select().single();
+      if (error) throw error;
+      setClients(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+
+      if (form.newClientAddress && form.newClientAddress.trim()) {
+        try {
+          const { data: prop, error: propErr } = await supabase.from('properties').insert({
+            client_id: data.id, label: null, address: form.newClientAddress.trim(),
+          }).select().single();
+          if (propErr) throw propErr;
+          setProperties(p => [...p, prop]);
+        } catch (propErr) {
+          // Non-fatal: the client's own `address` column already has this
+          // text; failing to also seed a `properties` row shouldn't block
+          // booking the job/note that triggered client creation.
+          console.warn("Failed to auto-seed property:", propErr.message);
+        }
+      }
+
+      return data.id;
+    }
+    if (!form.client_id) throw new Error("Client is required");
+    return form.client_id;
+  }
+
+  function resetClientForm() { setClientForm(EMPTY_CLIENT_FORM); }
+
+  // ── CLIENTS ──────────────────────────────────────────────────────
+  async function handleAddClient() {
+    if (!requireOwner()) return;
+    if (!clientForm.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('clients').insert({
+        name: clientForm.name.trim(),
+        phone: clientForm.phone || null,
+        email: clientForm.email || null,
+        address: clientForm.address || null,
+      }).select().single();
+      if (error) throw error;
+
+      setClients(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+
+      if (clientForm.address && clientForm.address.trim()) {
+        try {
+          const { data: prop, error: propErr } = await supabase.from('properties').insert({
+            client_id: data.id, label: null, address: clientForm.address.trim(),
+          }).select().single();
+          if (propErr) throw propErr;
+          setProperties(p => [...p, prop]);
+        } catch (propErr) {
+          console.warn("Failed to auto-seed property:", propErr.message);
+        }
+      }
+
+      setShowClientModal(false);
+      resetClientForm();
+      showNotif("✓ Client added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleEditClientSave() {
+    if (!requireOwner()) return;
+    if (!editClient.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('clients').update({
+        name: editClient.name.trim(),
+        phone: editClient.phone || null,
+        email: editClient.email || null,
+        address: editClient.address || null,
+      }).eq('id', editClient.id).select().single();
+      if (error) throw error;
+
+      setClients(p => p.map(c => c.id === data.id ? data : c).sort((a,b) => a.name.localeCompare(b.name)));
+      setJobs(p => p.map(j => j.client_id === data.id ? { ...j, client: data.name } : j));
+      setNotes(p => p.map(n => n.client_id === data.id ? { ...n, client: data.name } : n));
+      setEditClient(null);
+      resetNewPropertyForm();
+      showNotif("✓ Client updated");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  function resetNewPropertyForm() { setNewPropertyForm(EMPTY_PROPERTY_FORM); }
+
+  async function handleAddProperty() {
+    if (!requireOwner()) return;
+    if (!newPropertyForm.address.trim()) { showNotif("⚠️ Address is required"); return; }
+    try {
+      const { data, error } = await supabase.from('properties').insert({
+        client_id: editClient.id,
+        label: newPropertyForm.label.trim() || null,
+        address: newPropertyForm.address.trim(),
+      }).select().single();
+      if (error) throw error;
+      setProperties(p => [...p, data]);
+      resetNewPropertyForm();
+      showNotif("✓ Property added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleDeleteProperty(id) {
+    if (!requireOwner()) return;
+    try {
+      const { error } = await supabase.from('properties').delete().eq('id', id);
+      if (error) throw error;
+      setProperties(p => p.filter(pr => pr.id !== id));
+      showNotif("🗑 Property removed");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  // ── BOOK JOB ──────────────────────────────────────────────────
+  async function handleBook() {
+    if (!requireOwner()) return;
+    if (!bookForm.date) { showNotif("⚠️ Client and date are required"); return; }
+    try {
+      const clientId = await resolveClientId(bookForm);
+      const { data, error } = await supabase.from('jobs').insert({
+        client_id: clientId,
+        address: bookForm.address,
+        type: bookForm.type,
+        recurring: bookForm.recurring,
+        status: bookForm.status,
+        date: bookForm.date,
+        time: bookForm.time,
+        cleaner: bookForm.cleaner,
+        notes: bookForm.notes,
+      }).select('*, clients(id,name)').single();
+      if (error) throw error;
+
+      setJobs(p => [...p, { ...data, client: data.clients?.name || "Unknown" }]);
+      setShowBookModal(false);
+      resetBookForm();
+      showNotif("✓ Job booked successfully");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  // ── EDIT JOB ──────────────────────────────────────────────────
+  async function handleEditSave() {
+    if (!requireOwner()) return;
+    if (!editJob.date) { showNotif("⚠️ Client and date are required"); return; }
+    try {
+      const clientId = await resolveClientId(editJob);
+      const { data, error } = await supabase.from('jobs').update({
+        client_id: clientId,
+        address: editJob.address,
+        type: editJob.type,
+        recurring: editJob.recurring,
+        status: editJob.status,
+        date: editJob.date,
+        time: editJob.time,
+        cleaner: editJob.cleaner,
+        notes: editJob.notes,
+      }).eq('id', editJob.id).select('*, clients(id,name)').single();
+      if (error) throw error;
+
+      setJobs(p => p.map(j => j.id === editJob.id ? { ...data, client: data.clients?.name || "Unknown" } : j));
+      setEditJob(null);
+      showNotif("✓ Job updated");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleDeleteJob(id) {
+    if (!requireOwner()) return;
+    try {
+      const { error } = await supabase.from('jobs').delete().eq('id', id);
+      if (error) throw error;
+      setJobs(p => p.filter(j => j.id !== id));
+      setEditJob(null);
+      showNotif("🗑 Job removed");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  function openEditJob(j) {
+    setEditJob({
+      ...j, client_id: j.client_id, newClientName:"", newClientPhone:"", newClientEmail:"", newClientAddress:""
+    });
+  }
+
+  function duplicateJob(j) {
+    if (!requireOwner()) return;
+    setBookForm({
+      ...EMPTY_BOOK_FORM,
+      client_id: j.client_id,
+      address: j.address,
+      type: j.type,
+      recurring: j.recurring,
+      cleaner: j.cleaner,
+      notes: j.notes,
+    });
+    setShowBookModal(true);
+  }
+
+  async function handleMarkComplete(id) {
+    try {
+      const { error } = await supabase.from('jobs').update({ status: "completed" }).eq('id', id);
+      if (error) throw error;
+      setJobs(p => p.map(x => x.id===id ? {...x,status:"completed"} : x));
+      showNotif("✓ Job marked complete");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  // ── ADD NOTE ─────────────────────────────────────────────────
+  async function handleAddNote() {
+    if (!noteForm.text.trim()) { showNotif("⚠️ Client and note text required"); return; }
+    try {
+      const clientId = await resolveClientId(noteForm);
+      const { data, error } = await supabase.from('notes').insert({
+        client_id: clientId,
+        text: noteForm.text,
+        date: new Date().toISOString().split('T')[0],
+      }).select('*, clients(id,name)').single();
+      if (error) throw error;
+
+      setNotes(p => [{ ...data, client: data.clients?.name || "Unknown" }, ...p]);
+      setShowNoteModal(false);
+      resetNoteForm();
+      showNotif("✓ Note added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  function resetCleanerForm() { setCleanerForm(EMPTY_CLEANER_FORM); }
+
+  // ── TEAM (CLEANERS) ─────────────────────────────────────────────
+  async function handleAddCleaner() {
+    if (!requireOwner()) return;
+    if (!cleanerForm.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('cleaners').insert({
+        name: cleanerForm.name.trim(),
+        phone: cleanerForm.phone || null,
+        email: cleanerForm.email || null,
+        active: true,
+      }).select().single();
+      if (error) throw error;
+
+      setCleaners(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
+      setShowCleanerModal(false);
+      resetCleanerForm();
+      showNotif("✓ Cleaner added");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleEditCleanerSave() {
+    if (!requireOwner()) return;
+    if (!editCleaner.name.trim()) { showNotif("⚠️ Name is required"); return; }
+    try {
+      const { data, error } = await supabase.from('cleaners').update({
+        name: editCleaner.name.trim(),
+        phone: editCleaner.phone || null,
+        email: editCleaner.email || null,
+        active: editCleaner.active,
+        role: editCleaner.role,
+      }).eq('id', editCleaner.id).select().single();
+      if (error) throw error;
+
+      setCleaners(p => p.map(c => c.id === data.id ? data : c).sort((a,b) => a.name.localeCompare(b.name)));
+      setEditCleaner(null);
+      showNotif("✓ Cleaner updated");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  async function handleDeleteCleaner(id) {
+    if (!requireOwner()) return;
+    try {
+      const { error } = await supabase.from('cleaners').delete().eq('id', id);
+      if (error) throw error;
+      setCleaners(p => p.filter(c => c.id !== id));
+      setEditCleaner(null);
+      showNotif("🗑 Cleaner removed");
+    } catch (err) {
+      showNotif("⚠️ " + err.message);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // RENDER PAGES
+  // ═══════════════════════════════════════════════════════════════
+
+  const renderDashboard = () => (
+    <>
+      <div className="stats-grid">
+        {[
+          { label:"Today's Jobs", value: todayJobs.length, sub:"Scheduled today", accent:"#E8F4F8" },
+          { label:"Scheduled", value: scheduledJobs.length, sub:"Upcoming", accent:"#E8F4F8" },
+          { label:"Pending", value: pendingJobs.length, sub:"Need confirmation", accent:"#FFF8EC" },
+          { label:"Completed", value: completedJobs.length, sub:"All time", accent:"#E8F5EE" },
+        ].map((s,i) => (
+          <div key={i} className="stat-card" style={{"--accent":s.accent}}>
+            <div className="stat-label">{s.label}</div>
+            <div className="stat-value">{s.value}</div>
+            <div className="stat-sub">{s.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Today's Schedule</div>
+          <span style={{fontSize:12,color:"var(--slate-mid)"}}>
+            {new Date(todayStr+"T12:00:00").toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"})}
+          </span>
+        </div>
+        <div className="card-body">
+          {todayJobs.length === 0
+            ? <div className="empty"><div className="empty-icon">☀️</div><div className="empty-text">No jobs scheduled today</div></div>
+            : todayJobs.map(j => (
+                <div key={j.id} className="job-row">
+                  <div className="job-info">
+                    <div className="job-top">
+                      <span className="job-client">{j.client}</span>
+                      <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+                    </div>
+                    <div className="job-meta">{j.address}</div>
+                    <div className="job-details">
+                      <span className="job-time">{j.time}</span>
+                      <span className="job-type">{j.type} · {j.cleaner}</span>
+                    </div>
+                  </div>
+                  <div className="job-actions">
+                    {j.status !== "completed" &&
+                      <button className="btn-icon" title="Mark complete" onClick={() => handleMarkComplete(j.id)}>
+                        ✓
+                      </button>
+                    }
+                  </div>
+                </div>
+              ))
+          }
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-header">
+          <div className="card-title">Recent Activity</div>
+        </div>
+        <div className="card-body">
+          {[...jobs].reverse().slice(0,4).map(j => (
+            <div key={j.id} className="job-row" style={{cursor:"pointer"}} onClick={() => {
+              setSearchQ(j.client);
+              setStatusFilter("all");
+              setActiveNav("jobs");
+            }}>
+              <div style={{width:8,height:8,borderRadius:"50%",background:dotColor[j.status]||"#A8BECB",flexShrink:0,marginTop:6}}></div>
+              <div className="job-info">
+                <div className="job-top">
+                  <span className="job-client">{j.client}</span>
+                  <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+                </div>
+                <div className="job-details">
+                  <span className="job-time">{fmtDate(j.date)}</span>
+                  <span className="job-type">{j.type}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+
+  const renderJobs = () => (
+    <div className="card">
+      <div className="search-bar">
+        <input className="search-input" placeholder="Search clients, address, type…" value={searchQ} onChange={e=>setSearchQ(e.target.value)} />
+      </div>
+      <div className="filter-tabs">
+        {STATUS_TABS.map(t => (
+          <button key={t} className={`filter-tab ${statusFilter===t?"active":""}`} onClick={()=>setStatusFilter(t)}>
+            {t.charAt(0).toUpperCase()+t.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div className="card-body">
+        {filteredJobs.length === 0
+          ? <div className="empty"><div className="empty-icon">📋</div><div className="empty-text">No jobs found</div></div>
+          : filteredJobs.map(j => (
+              <div key={j.id} className="job-row">
+                <div className="job-info">
+                  <div className="job-top">
+                    <span className="job-client">{j.client}</span>
+                    <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+                    {j.recurring !== "One-time" && <span className="badge badge-recurring">{j.recurring}</span>}
+                  </div>
+                  <div className="job-meta">{j.address}</div>
+                  <div className="job-details">
+                    <span className="job-time">{j.time} · {fmtDate(j.date)}</span>
+                    <span className="job-type">{j.type} · {j.cleaner}</span>
+                  </div>
+                </div>
+                <div className="job-actions">
+                  {j.status !== "completed" &&
+                    <button className="btn-icon" title="Mark complete" onClick={() => handleMarkComplete(j.id)}>
+                      ✓
+                    </button>
+                  }
+                  {isOwner && j.status !== "completed" &&
+                    <button className="btn-icon" title="Edit job" onClick={()=>openEditJob(j)}>✏️</button>
+                  }
+                  {isOwner && j.status === "completed" &&
+                    <button className="btn-icon" title="Duplicate as new appointment" onClick={()=>duplicateJob(j)}>🔁</button>
+                  }
+                </div>
+              </div>
+            ))
+        }
+      </div>
+    </div>
+  );
+
+  const renderDayPanel = (date, dayJobs) => (
+    <div className="schedule-day">
+      <div className="day-header">
+        <div className="day-label">
+          {new Date(date+"T12:00:00").toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}
+        </div>
+        <div className="day-line"></div>
+        <div className="day-count">{dayJobs.length} job{dayJobs.length!==1?"s":""}</div>
+      </div>
+      {dayJobs.map(j => (
+        <div key={j.id} className="slot" style={isOwner ? {cursor:"pointer"} : undefined} onClick={isOwner ? () => openEditJob(j) : undefined}>
+          <div className="slot-dot" style={{background: dotColor[j.status] || "#A8BECB"}}></div>
+          <div className="slot-time">{j.time || "—"}</div>
+          <div className="slot-info">
+            <div className="slot-client">{j.client}</div>
+            <div className="slot-detail">{j.type} · {j.cleaner} · {j.address}</div>
+          </div>
+          <span className={`badge badge-${j.status}`}><span className="badge-dot"></span>{j.status}</span>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderScheduleList = () => (
+    <>
+      {Object.keys(scheduleDays).length === 0
+        ? <div className="empty"><div className="empty-icon">📅</div><div className="empty-text">No scheduled jobs</div></div>
+        : Object.entries(scheduleDays).map(([date, dayJobs]) => (
+            <React.Fragment key={date}>{renderDayPanel(date, dayJobs)}</React.Fragment>
+          ))
+      }
+    </>
+  );
+
+  const renderScheduleCalendar = () => (
+    <>
+      <div className="calendar-toolbar">
+        <div className="calendar-nav-btns">
+          <button className="btn-icon" title="Previous month" onClick={()=>setCalendarMonth(d=>new Date(d.getFullYear(), d.getMonth()-1, 1))}>‹</button>
+          <button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:12}} onClick={()=>{
+            const t = new Date();
+            setCalendarMonth(new Date(t.getFullYear(), t.getMonth(), 1));
+            setSelectedDate(t.toISOString().split('T')[0]);
+          }}>Today</button>
+          <button className="btn-icon" title="Next month" onClick={()=>setCalendarMonth(d=>new Date(d.getFullYear(), d.getMonth()+1, 1))}>›</button>
+        </div>
+        <div className="calendar-month-label">{calendarMonth.toLocaleDateString("en-US",{month:"long",year:"numeric"})}</div>
+        <div style={{width:96}}></div>
+      </div>
+      <div className="calendar-weekdays">
+        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map(w => <div key={w} className="calendar-weekday">{w}</div>)}
+      </div>
+      <div className="calendar-grid">
+        {calendarCells.map((dateStr, i) => {
+          if (!dateStr) return <div key={i} className="calendar-cell calendar-cell-empty"></div>;
+          const dayJobs = scheduleDays[dateStr] || [];
+          const dayNum = parseInt(dateStr.slice(-2), 10);
+          const isToday = dateStr === todayStr;
+          const isSelected = dateStr === selectedDate;
+          const dots = dayJobs.slice(0, 2);
+          const overflow = dayJobs.length > 2 ? dayJobs.length - 2 : 0;
+          return (
+            <div key={dateStr} className={`calendar-cell ${isToday ? "calendar-cell-today" : ""} ${isSelected ? "calendar-cell-selected" : ""}`}
+              onClick={()=>setSelectedDate(dateStr)}>
+              <div className="calendar-cell-daynum">{dayNum}</div>
+              {dots.length > 0 && (
+                <div className="calendar-cell-dots">
+                  {dots.map(j => <span key={j.id} className="calendar-cell-dot" style={{background: dotColor[j.status] || "#A8BECB"}}></span>)}
+                </div>
+              )}
+              {overflow > 0 && <div className="calendar-cell-more">+{overflow}</div>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="calendar-selected-day">
+        {isOwner && (
+          <button className="btn btn-ghost calendar-quickbook-btn" onClick={() => {
+            if (!requireOwner()) return;
+            setBookForm({ ...EMPTY_BOOK_FORM, date: selectedDate });
+            setShowBookModal(true);
+          }}>+ Book this day</button>
+        )}
+        {renderDayPanel(selectedDate, scheduleDays[selectedDate] || [])}
+      </div>
+    </>
+  );
+
+  const renderSchedule = () => (
+    <div className="card">
+      <div className="filter-tabs">
+        <button className={`filter-tab ${scheduleView==="calendar"?"active":""}`} onClick={()=>setScheduleView("calendar")}>Calendar</button>
+        <button className={`filter-tab ${scheduleView==="list"?"active":""}`} onClick={()=>setScheduleView("list")}>List</button>
+      </div>
+      <div className="card-body" style={{padding:16}}>
+        {scheduleView === "calendar" ? renderScheduleCalendar() : renderScheduleList()}
+      </div>
+    </div>
+  );
+
+  const renderClients = () => (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">All Clients</div>
+        <span style={{fontSize:12,color:"var(--slate-mid)"}}>{clients.length} total</span>
+      </div>
+      <div className="card-body">
+        {clients.length === 0
+          ? <div className="empty"><div className="empty-icon">👥</div><div className="empty-text">No clients yet</div></div>
+          : clients.map(c => {
+              const clientJobs = jobs.filter(j => j.client_id === c.id).sort((a,b)=>a.date.localeCompare(b.date));
+              const lastJob = clientJobs[clientJobs.length-1];
+              return (
+                <div key={c.id} className="client-row">
+                  <div className="client-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
+                  <div style={{flex:1}}>
+                    <div className="client-name">{c.name}</div>
+                    <div className="client-addr">{c.address || "No address on file"}</div>
+                  </div>
+                  <div style={{textAlign:"right", marginRight:10}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"var(--ocean)"}}>{lastJob?.recurring || "—"}</div>
+                    <div style={{fontSize:11,color:"var(--slate-mid)"}}>{clientJobs.length} job{clientJobs.length!==1?"s":""}</div>
+                  </div>
+                  {lastJob && (
+                    <span className={`badge badge-${lastJob.status}`} style={{marginRight: isOwner ? 10 : 0}}>
+                      <span className="badge-dot"></span>{lastJob.status}
+                    </span>
+                  )}
+                  {isOwner &&
+                    <button className="btn-icon" title="Edit client" onClick={()=>setEditClient({...c})}>✏️</button>
+                  }
+                </div>
+              );
+            })
+        }
+      </div>
+    </div>
+  );
+
+  const renderNotes = () => (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">Cleaner Notes</div>
+      </div>
+      <div className="card-body" style={{padding:16}}>
+        {notes.length === 0
+          ? <div className="empty"><div className="empty-icon">📝</div><div className="empty-text">No notes yet</div></div>
+          : <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+              {notes.map(n => (
+                <div key={n.id} className="note-item" style={{borderLeftColor:colorFor(n.client_id),padding:"14px 16px"}}>
+                  <div className="note-header">
+                    <span className="note-client">{n.client}</span>
+                    <span className="note-date">{fmtDate(n.date)}</span>
+                  </div>
+                  <div className="note-text">{n.text}</div>
+                </div>
+              ))}
+            </div>
+        }
+      </div>
+    </div>
+  );
+
+  const renderTeam = () => (
+    <div className="card">
+      <div className="card-header">
+        <div className="card-title">Team</div>
+        <span style={{fontSize:12,color:"var(--slate-mid)"}}>{cleaners.length} total</span>
+      </div>
+      <div className="card-body">
+        {cleaners.length === 0
+          ? <div className="empty"><div className="empty-icon">🧺</div><div className="empty-text">No cleaners yet</div></div>
+          : cleaners.map(c => (
+              <div key={c.id} className="client-row">
+                <div className="client-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
+                <div style={{flex:1}}>
+                  <div className="client-name">{c.name}</div>
+                  <div className="client-addr">{[c.phone, c.email].filter(Boolean).join(" · ") || "No contact info"}</div>
+                </div>
+                <span className={`badge ${c.active ? "badge-active" : "badge-inactive"}`} style={{marginRight:10}}>
+                  <span className="badge-dot"></span>{c.active ? "active" : "inactive"}
+                </span>
+                <button className="btn-icon" title="Edit cleaner" onClick={()=>setEditCleaner({...c})}>✏️</button>
+              </div>
+            ))
+        }
+      </div>
+    </div>
+  );
+
+  const bookJobButton = isOwner ? <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button> : null;
+  const topbarActions = {
+    dashboard: bookJobButton,
+    jobs:      bookJobButton,
+    schedule:  bookJobButton,
+    clients:   isOwner ? <button className="btn btn-primary" onClick={()=>setShowClientModal(true)}>+ Add Client</button> : null,
+    notes:     <button className="btn btn-primary" onClick={()=>setShowNoteModal(true)}>+ Add Note</button>,
+    team:      isOwner ? <button className="btn btn-primary" onClick={()=>setShowCleanerModal(true)}>+ Add Cleaner</button> : null,
+  };
+
+  const pages = { dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients, notes: renderNotes, team: renderTeam };
+
+  return (
+    <>
+      <style>{styles}</style>
+      {notif && <div className="notif">{notif}</div>}
+
+      {/* BOOK MODAL */}
+      {showBookModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowBookModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Book a Job</div>
+              <button className="modal-close" onClick={()=>setShowBookModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <ClientPicker clients={clients} form={bookForm} setForm={setBookForm} label="Client" />
+              <div className="form-group">
+                <label className="form-label">Status</label>
+                <select className="form-select" value={bookForm.status} onChange={e=>setBookForm(p=>({...p,status:e.target.value}))}>
+                  {["scheduled","pending","cancelled"].map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <SavedPropertyPicker properties={properties} form={bookForm} setForm={setBookForm} />
+              <div className="form-group">
+                <label className="form-label">Job Site Address</label>
+                <input className="form-input" value={bookForm.address} onChange={e=>setBookForm(p=>({...p,address:e.target.value}))} placeholder="Street address" />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Service Type</label>
+                  <select className="form-select" value={bookForm.type} onChange={e=>setBookForm(p=>({...p,type:e.target.value}))}>
+                    {SERVICE_TYPES.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Recurrence</label>
+                  <select className="form-select" value={bookForm.recurring} onChange={e=>setBookForm(p=>({...p,recurring:e.target.value}))}>
+                    {RECURRENCE.map(r=><option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Date *</label>
+                  <input className="form-input" type="date" value={bookForm.date} onChange={e=>setBookForm(p=>({...p,date:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Time</label>
+                  <input className="form-input" type="time" value={bookForm.time} onChange={e=>setBookForm(p=>({...p,time:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Assign Cleaner</label>
+                <select className="form-select" value={bookForm.cleaner} onChange={e=>setBookForm(p=>({...p,cleaner:e.target.value}))}>
+                  <option value="Unassigned">Unassigned</option>
+                  {cleaners.filter(c=>c.active).map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notes for Cleaner</label>
+                <textarea className="form-textarea" value={bookForm.notes} onChange={e=>setBookForm(p=>({...p,notes:e.target.value}))} placeholder="Access instructions, special requests…" />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowBookModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleBook}>Book Job</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT MODAL */}
+      {editJob && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setEditJob(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Edit Job</div>
+              <button className="modal-close" onClick={()=>setEditJob(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <ClientPicker clients={clients} form={editJob} setForm={setEditJob} label="Client" />
+              <div className="form-group">
+                <label className="form-label">Status</label>
+                <select className="form-select" value={editJob.status} onChange={e=>setEditJob(p=>({...p,status:e.target.value}))}>
+                  {["scheduled","pending","completed","cancelled"].map(s=><option key={s}>{s}</option>)}
+                </select>
+              </div>
+              <SavedPropertyPicker properties={properties} form={editJob} setForm={setEditJob} />
+              <div className="form-group">
+                <label className="form-label">Job Site Address</label>
+                <input className="form-input" value={editJob.address} onChange={e=>setEditJob(p=>({...p,address:e.target.value}))} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Service Type</label>
+                  <select className="form-select" value={editJob.type} onChange={e=>setEditJob(p=>({...p,type:e.target.value}))}>
+                    {SERVICE_TYPES.map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Recurrence</label>
+                  <select className="form-select" value={editJob.recurring} onChange={e=>setEditJob(p=>({...p,recurring:e.target.value}))}>
+                    {RECURRENCE.map(r=><option key={r}>{r}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Date *</label>
+                  <input className="form-input" type="date" value={editJob.date} onChange={e=>setEditJob(p=>({...p,date:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Time</label>
+                  <input className="form-input" type="time" value={editJob.time} onChange={e=>setEditJob(p=>({...p,time:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Assign Cleaner</label>
+                <select className="form-select" value={editJob.cleaner} onChange={e=>setEditJob(p=>({...p,cleaner:e.target.value}))}>
+                  <option value="Unassigned">Unassigned</option>
+                  {cleaners.filter(c=>c.active).map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Notes for Cleaner</label>
+                <textarea className="form-textarea" value={editJob.notes} onChange={e=>setEditJob(p=>({...p,notes:e.target.value}))} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-danger" onClick={()=>handleDeleteJob(editJob.id)}>🗑 Delete</button>
+              <button className="btn btn-ghost" onClick={()=>setEditJob(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEditSave}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTE MODAL */}
+      {showNoteModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowNoteModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Add Note</div>
+              <button className="modal-close" onClick={()=>setShowNoteModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <ClientPicker clients={clients} form={noteForm} setForm={setNoteForm} label="Client" />
+              <div className="form-group">
+                <label className="form-label">Note</label>
+                <textarea className="form-textarea" value={noteForm.text} onChange={e=>setNoteForm(p=>({...p,text:e.target.value}))} placeholder="Instructions, access codes, preferences…" style={{minHeight:120}} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowNoteModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAddNote}>Add Note</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD CLEANER MODAL */}
+      {showCleanerModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowCleanerModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Add Cleaner</div>
+              <button className="modal-close" onClick={()=>setShowCleanerModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={cleanerForm.name} onChange={e=>setCleanerForm(p=>({...p,name:e.target.value}))} placeholder="Full name" />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={cleanerForm.phone} onChange={e=>setCleanerForm(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={cleanerForm.email} onChange={e=>setCleanerForm(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowCleanerModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAddCleaner}>Add Cleaner</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CLEANER MODAL */}
+      {editCleaner && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setEditCleaner(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Edit Cleaner</div>
+              <button className="modal-close" onClick={()=>setEditCleaner(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={editCleaner.name} onChange={e=>setEditCleaner(p=>({...p,name:e.target.value}))} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={editCleaner.phone||""} onChange={e=>setEditCleaner(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={editCleaner.email||""} onChange={e=>setEditCleaner(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Status</label>
+                  <select className="form-select" value={editCleaner.active ? "active" : "inactive"} onChange={e=>setEditCleaner(p=>({...p,active:e.target.value==="active"}))}>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Role</label>
+                  <select className="form-select" value={editCleaner.role || "cleaner"} onChange={e=>setEditCleaner(p=>({...p,role:e.target.value}))}>
+                    <option value="cleaner">Cleaner</option>
+                    <option value="owner">Owner</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-danger" onClick={()=>handleDeleteCleaner(editCleaner.id)}>🗑 Delete</button>
+              <button className="btn btn-ghost" onClick={()=>setEditCleaner(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEditCleanerSave}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD CLIENT MODAL */}
+      {showClientModal && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowClientModal(false)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Add Client</div>
+              <button className="modal-close" onClick={()=>setShowClientModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={clientForm.name} onChange={e=>setClientForm(p=>({...p,name:e.target.value}))} placeholder="Full name" />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={clientForm.phone} onChange={e=>setClientForm(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={clientForm.email} onChange={e=>setClientForm(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Address</label>
+                <input className="form-input" value={clientForm.address} onChange={e=>setClientForm(p=>({...p,address:e.target.value}))} placeholder="Billing / primary address" />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setShowClientModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAddClient}>Add Client</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT CLIENT MODAL */}
+      {editClient && (
+        <div className="modal-overlay" onClick={e=>{ if (e.target===e.currentTarget) { setEditClient(null); resetNewPropertyForm(); } }}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Edit Client</div>
+              <button className="modal-close" onClick={()=>{ setEditClient(null); resetNewPropertyForm(); }}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Name *</label>
+                <input className="form-input" value={editClient.name} onChange={e=>setEditClient(p=>({...p,name:e.target.value}))} />
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Phone</label>
+                  <input className="form-input" value={editClient.phone||""} onChange={e=>setEditClient(p=>({...p,phone:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <input className="form-input" value={editClient.email||""} onChange={e=>setEditClient(p=>({...p,email:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Address</label>
+                <input className="form-input" value={editClient.address||""} onChange={e=>setEditClient(p=>({...p,address:e.target.value}))} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Saved Properties</label>
+                {propertiesForEditClient.length === 0 && (
+                  <div style={{fontSize:12,color:"var(--slate-mid)",marginBottom:8}}>No saved properties yet</div>
+                )}
+                {propertiesForEditClient.map(p => (
+                  <div key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"8px 0",borderBottom:"1px solid #f0f4f6"}}>
+                    <div>
+                      {p.label && <div style={{fontWeight:600,fontSize:13}}>{p.label}</div>}
+                      <div style={{fontSize:12,color:"var(--slate-mid)"}}>{p.address}</div>
+                    </div>
+                    <button className="btn-icon danger" title="Delete property" onClick={()=>handleDeleteProperty(p.id)}>🗑</button>
+                  </div>
+                ))}
+                <div className="form-row" style={{marginTop:8}}>
+                  <input className="form-input" placeholder="Label (optional, e.g. Unit 4B)"
+                    value={newPropertyForm.label} onChange={e=>setNewPropertyForm(p=>({...p, label:e.target.value}))} />
+                  <input className="form-input" placeholder="Address"
+                    value={newPropertyForm.address} onChange={e=>setNewPropertyForm(p=>({...p, address:e.target.value}))} />
+                </div>
+                <button className="btn btn-ghost" style={{marginTop:8}} onClick={handleAddProperty}>+ Add Property</button>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>{ setEditClient(null); resetNewPropertyForm(); }}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleEditClientSave}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="app">
+        {/* TOP HEADER */}
+        <div className="topbar">
+          <div className="topbar-left">
+            <span className="brand-icon">🧹</span>
+            <div>
+              <div className="brand-name">Janna's Cleaning Service</div>
+            </div>
+          </div>
+          <div className="topbar-right">
+            {topbarActions[activeNav]}
+            <div className="user-menu-wrap">
+              <div className="avatar" style={{cursor:"pointer", background: currentUser ? colorFor(currentUser.id) : "var(--ocean)"}}
+                onClick={()=>setShowUserMenu(v=>!v)}>
+                {currentUser?.name?.[0] || "?"}
+              </div>
+              {showUserMenu && (
+                <div className="user-menu" onMouseLeave={()=>setShowUserMenu(false)}>
+                  <div className="user-menu-header">{currentUser?.name}</div>
+                  <div className="user-menu-item" onClick={()=>{ localStorage.removeItem(USER_KEY); setCurrentUser(null); setShowUserMenu(false); }}>Switch user</div>
+                  <div className="user-menu-item" onClick={()=>{ localStorage.removeItem(USER_KEY); localStorage.removeItem(TRUST_KEY); setCurrentUser(null); setTrusted(false); setShowUserMenu(false); }}>Lock device</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* NAV BAR */}
+        <div className="navbar">
+          <div className="nav-tabs">
+            {navItems.map(n => (
+              <div key={n.id} className={`nav-item ${activeNav===n.id?"active":""}`} onClick={()=>setActiveNav(n.id)}>
+                <span className="nav-icon">{n.icon}</span>
+                <span>{n.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* MAIN */}
+        <div className="main">
+          <div className="content">
+            {loading
+              ? <div className="empty"><div className="empty-icon">⏳</div><div className="empty-text">Loading…</div></div>
+              : pages[activeNav]?.()
+            }
+          </div>
+          <div className="app-footer">r{APP_REV}</div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<JannasDashboard />);
+</script>
+</body>
+</html>
