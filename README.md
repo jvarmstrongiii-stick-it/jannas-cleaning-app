@@ -8,8 +8,8 @@ schedule, clients, and cleaner notes.
 - **UI:** React 18 (UMD build from CDN)
 - **JSX:** Babel Standalone, transpiled in-browser — no build step
 - **DB:** Supabase (Postgres), open anon key + RLS, no auth in v1
-- **Hosting:** GitHub Pages via the `gh-pages` branch
-- **Deploy:** GitHub Actions — push to `main` touching `jannas.html` auto-deploys
+- **Hosting:** Vercel (repo connected in the Vercel dashboard, no build step)
+- **Deploy:** push to `main` → Vercel auto-deploys; `vercel.json` rewrites `/` to `/jannas.html`
 
 ## Repo layout
 
@@ -21,7 +21,8 @@ schedule, clients, and cleaner notes.
 ├── supabase/003_add_cleaner_role.sql # incremental migration adding `cleaners.role` (owner vs cleaner)
 ├── supabase/004_add_properties.sql   # incremental migration adding `properties` (saved job-site addresses)
 ├── CLAUDE.md                         # commit/deploy rules for future sessions
-└── .github/workflows/deploy.yml
+├── vercel.json                       # serves jannas.html at the site root
+└── .vercelignore                     # keeps docs/SQL off the public site
 ```
 
 ## Setup
@@ -43,9 +44,8 @@ live project (`hcoslltuiltkkbqcgtzm`).
 3. `APP_PASSPHRASE` in `jannas.html` holds the shared passphrase for staff
    devices (see Trusted-device gate below) — update it there if it needs
    to change.
-4. Push to `main` — GitHub Actions publishes `jannas.html` as `index.html`
-   to the `gh-pages` branch.
-5. Enable Pages once: Settings → Pages → source = `gh-pages` branch, root.
+4. Import the repo once in Vercel (Add New → Project, framework preset
+   "Other", no build command). After that, every push to `main` deploys.
 
 To point the app at a different Supabase project, swap the two Supabase
 constants near the top of `jannas.html` (Project Settings → API for the

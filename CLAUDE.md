@@ -4,7 +4,12 @@
 2. **ALWAYS bump `APP_REV`** in jannas.html on every commit.
 3. Set git identity before first commit:
    `git config user.email "..." && git config user.name "Claude"`
-4. Deploy takes ~1 minute after push to main (GitHub Actions → gh-pages).
+4. Deploy takes ~1 minute after push to main (Vercel, connected to this repo
+   via the Vercel dashboard). `vercel.json` rewrites `/` → `/jannas.html`
+   (the file is NOT renamed to index.html) — that rewrite is what prevents
+   the root-URL 404. `.vercelignore` keeps docs/SQL off the public site.
+   GitHub Pages / the `gh-pages` branch is retired as of r18; don't re-add
+   a Pages workflow.
 5. Prefix every commit message with `rNNN:` matching the new APP_REV.
 
 ## jannas.html IS the app

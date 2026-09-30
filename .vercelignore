@@ -1,0 +1,5 @@
+# Only the app itself needs to be served -- keep repo docs/SQL off the public site.
+CLAUDE.md
+README.md
+supabase
+.github
