@@ -10,6 +10,11 @@
    the root-URL 404. `.vercelignore` keeps docs/SQL off the public site.
    GitHub Pages / the `gh-pages` branch is retired as of r18; don't re-add
    a Pages workflow.
+   Gotcha (hit at r18): Vercel's Production Branch is copied from the
+   GitHub repo's *default branch* at import time. This repo's default was
+   a stale `claude/...` branch, so Vercel shipped r2. Both are now `main`
+   — if a deploy ever shows an old APP_REV, check GitHub Settings →
+   Default branch and Vercel Settings → Git → Production Branch first.
 5. Prefix every commit message with `rNNN:` matching the new APP_REV.
 
 ## jannas.html IS the app
