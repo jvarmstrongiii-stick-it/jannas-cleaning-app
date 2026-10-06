@@ -8,7 +8,7 @@ schedule, clients, and cleaner notes.
 - **UI:** React 18 (UMD build from CDN)
 - **JSX:** Babel Standalone, transpiled in-browser — no build step
 - **DB:** Supabase (Postgres), open anon key + RLS, no auth in v1
-- **Hosting:** Vercel (repo connected in the Vercel dashboard, no build step)
+- **Hosting:** Vercel (repo connected in the Vercel dashboard, no build step) — live at https://jannas-cleaning-app.vercel.app
 - **Deploy:** push to `main` → Vercel auto-deploys; `vercel.json` rewrites `/` to `/jannas.html`
 
 ## Repo layout

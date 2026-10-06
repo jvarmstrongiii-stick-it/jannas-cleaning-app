@@ -4,8 +4,11 @@
 2. **ALWAYS bump `APP_REV`** in jannas.html on every commit.
 3. Set git identity before first commit:
    `git config user.email "..." && git config user.name "Claude"`
-4. Deploy takes ~1 minute after push to main (Vercel, connected to this repo
-   via the Vercel dashboard). `vercel.json` rewrites `/` → `/jannas.html`
+4. Deploy takes ~1 minute after push to main (Vercel project
+   `insight17/jannas-cleaning-app`, connected via the Vercel dashboard).
+   Live URL: https://jannas-cleaning-app.vercel.app — the long
+   `jannas-cleaning-<hash>-insight17.vercel.app` URLs are frozen per-deploy
+   snapshots, never share those. `vercel.json` rewrites `/` → `/jannas.html`
    (the file is NOT renamed to index.html) — that rewrite is what prevents
    the root-URL 404. `.vercelignore` keeps docs/SQL off the public site.
    GitHub Pages / the `gh-pages` branch is retired as of r18; don't re-add
