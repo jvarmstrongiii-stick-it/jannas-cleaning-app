@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 20;
+const APP_REV = 21;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -332,6 +332,7 @@ const styles = `
   .gate-title { font-family: var(--font-display); font-size: 24px; font-weight: 600; color: var(--slate); margin-bottom: 4px; }
   .gate-sub { font-size: 13px; color: var(--slate-mid); margin-bottom: 20px; }
   .gate-error { color: var(--coral); font-size: 12px; margin-top: 8px; }
+  .gate-hint { font-size: 12px; font-style: italic; color: var(--slate-mid); margin-top: 8px; }
   .name-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-top: 8px; }
   .name-btn {
     display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -525,6 +526,7 @@ function PassphraseGate({ onUnlock }) {
           <input className="form-input" type="password" value={value}
             onChange={e=>{ setValue(e.target.value); setError(""); }}
             placeholder="Passphrase" autoFocus />
+          <div className="gate-hint">Hint: What are you eating?</div>
           {error && <div className="gate-error">{error}</div>}
           <div style={{marginTop:16}}>
             <button className="btn btn-primary" type="submit" style={{width:"100%"}}>Unlock</button>
