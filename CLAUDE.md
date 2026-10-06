@@ -59,7 +59,9 @@ one-way autofill convenience only, so editing/deleting a property never
 retroactively touches already-booked jobs. New clients auto-seed a first
 `properties` row from whatever address was typed at creation time (via
 `resolveClientId()` for the ClientPicker's "+ New client…" inline path,
-and via `handleAddClient()` for the standalone Add Client modal) — that
+via `handleAddClient()` for the standalone Add Client modal, and via
+`handleEditClientSave()` when an address is saved on a client that has no
+properties yet — e.g. Invoice Simple imports, which arrive address-less) — that
 insert is wrapped in its own non-fatal try/catch so a failure there never
 blocks the client/job/note creation that triggered it.
 

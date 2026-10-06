@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 23;
+const APP_REV = 24;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -844,6 +844,21 @@ function JannasDashboard() {
       setClients(p => p.map(c => c.id === data.id ? data : c).sort((a,b) => a.name.localeCompare(b.name)));
       setJobs(p => p.map(j => j.client_id === data.id ? { ...j, client: data.name } : j));
       setNotes(p => p.map(n => n.client_id === data.id ? { ...n, client: data.name } : n));
+
+      // Same non-fatal auto-seed as handleAddClient: a client given an
+      // address here with no saved properties yet gets it as their first one.
+      if (data.address && data.address.trim() && !properties.some(pr => pr.client_id === data.id)) {
+        try {
+          const { data: prop, error: propErr } = await supabase.from('properties').insert({
+            client_id: data.id, label: null, address: data.address.trim(),
+          }).select().single();
+          if (propErr) throw propErr;
+          setProperties(p => [...p, prop]);
+        } catch (propErr) {
+          console.warn("Failed to auto-seed property:", propErr.message);
+        }
+      }
+
       setEditClient(null);
       resetNewPropertyForm();
       showNotif("✓ Client updated");
