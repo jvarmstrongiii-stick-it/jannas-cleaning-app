@@ -14,9 +14,9 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
-const APP_REV = 24;
+const APP_REV = 25;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -308,6 +308,15 @@ const styles = `
   }
   .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--ocean-light); }
   .form-textarea { resize: vertical; min-height: 80px; }
+  .addr-wrap { position: relative; width: 100%; }
+  .addr-list {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: #fff;
+    border: 1px solid #dde3e8; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    z-index: 1100; overflow: hidden;
+  }
+  .addr-item { padding: 9px 12px; font-size: 13px; color: var(--slate); cursor: pointer; }
+  .addr-item.active, .addr-item:hover { background: var(--ocean-pale); }
+  .addr-credit { padding: 4px 12px; font-size: 10px; color: var(--slate-mid); text-align: right; border-top: 1px solid #f0f4f6; }
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .form-hint { font-size: 11px; color: var(--slate-light); margin-top: 6px; }
 
@@ -433,6 +442,103 @@ function colorFor(id) {
 
 // Reusable client picker: select an existing client, or add a brand-new one
 // inline (no dedicated client-creation screen in v1).
+// ── ADDRESS SUGGESTIONS ─────────────────────────────────────────────
+// Free type-ahead via Photon (OpenStreetMap data, no API key, CORS-open).
+// Biased toward Somers Point NJ and boxed to the NJ/PA/DE/NY/MD region
+// where Janna works. Purely a convenience: the input stays free text, so
+// if Photon is down or slow, typing an address by hand still works.
+const PHOTON_URL = "https://photon.komoot.io/api/";
+const PHOTON_BIAS = { lat: 39.3176, lon: -74.5946 };
+const PHOTON_BBOX = "-80.6,38.4,-73.5,42.6";
+const STATE_ABBR = {
+  "New Jersey":"NJ","Pennsylvania":"PA","Delaware":"DE","New York":"NY","Maryland":"MD",
+};
+
+function formatPhotonAddress(pr) {
+  const street = pr.street && pr.housenumber ? `${pr.housenumber} ${pr.street}`
+    : pr.street ? pr.street
+    : pr.name;
+  if (!street) return null;
+  const town = pr.city || pr.town || pr.village || pr.locality || pr.district || pr.county;
+  const state = STATE_ABBR[pr.state] || pr.state;
+  const tail = [state, pr.postcode].filter(Boolean).join(" ");
+  return [street, town, tail].filter(Boolean).join(", ");
+}
+
+function AddressInput({ value, onChange, placeholder }) {
+  const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const timer = useRef(null);
+  const ctrl = useRef(null);
+
+  useEffect(() => () => { clearTimeout(timer.current); ctrl.current?.abort(); }, []);
+
+  function lookup(q) {
+    clearTimeout(timer.current);
+    ctrl.current?.abort();
+    if (q.trim().length < 4) { setItems([]); setOpen(false); return; }
+    timer.current = setTimeout(async () => {
+      const ac = new AbortController();
+      ctrl.current = ac;
+      try {
+        const url = `${PHOTON_URL}?q=${encodeURIComponent(q)}&limit=8&lang=en`
+          + `&lat=${PHOTON_BIAS.lat}&lon=${PHOTON_BIAS.lon}&bbox=${PHOTON_BBOX}`;
+        const res = await fetch(url, { signal: ac.signal });
+        if (!res.ok) return;
+        const json = await res.json();
+        const seen = new Set();
+        const out = [];
+        for (const f of json.features || []) {
+          const label = formatPhotonAddress(f.properties || {});
+          if (label && !seen.has(label)) { seen.add(label); out.push(label); }
+          if (out.length === 5) break;
+        }
+        setItems(out);
+        setActive(-1);
+        setOpen(out.length > 0);
+      } catch (e) {
+        if (e.name !== "AbortError") console.warn("Address lookup failed:", e.message);
+      }
+    }, 300);
+  }
+
+  function pick(label) {
+    onChange(label);
+    setItems([]);
+    setOpen(false);
+  }
+
+  function onKeyDown(e) {
+    if (!open || items.length === 0) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(i => (i + 1) % items.length); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(i => (i <= 0 ? items.length - 1 : i - 1)); }
+    else if (e.key === "Enter" && active >= 0) { e.preventDefault(); pick(items[active]); }
+    else if (e.key === "Escape") { setOpen(false); }
+  }
+
+  return (
+    <div className="addr-wrap">
+      <input className="form-input" value={value} placeholder={placeholder} autoComplete="off"
+        onChange={e => { onChange(e.target.value); lookup(e.target.value); }}
+        onKeyDown={onKeyDown}
+        onFocus={() => { if (items.length) setOpen(true); }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && (
+        <div className="addr-list">
+          {items.map((label, i) => (
+            <div key={label} className={`addr-item${i === active ? " active" : ""}`}
+              onMouseDown={e => { e.preventDefault(); pick(label); }}>
+              📍 {label}
+            </div>
+          ))}
+          <div className="addr-credit">© OpenStreetMap</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClientPicker({ clients, form, setForm, label }) {
   const isNew = form.client_id === NEW_CLIENT_VALUE;
   return (
@@ -467,8 +573,8 @@ function ClientPicker({ clients, form, setForm, label }) {
           </div>
           <div className="form-group">
             <label className="form-label">Client Address</label>
-            <input className="form-input" value={form.newClientAddress}
-              onChange={e=>setForm(p=>({...p, newClientAddress:e.target.value}))} placeholder="Billing / primary address" />
+            <AddressInput value={form.newClientAddress}
+              onChange={v=>setForm(p=>({...p, newClientAddress:v}))} placeholder="Billing / primary address" />
           </div>
         </>
       )}
@@ -1438,7 +1544,7 @@ function JannasDashboard() {
               <SavedPropertyPicker properties={properties} form={bookForm} setForm={setBookForm} />
               <div className="form-group">
                 <label className="form-label">Job Site Address</label>
-                <input className="form-input" value={bookForm.address} onChange={e=>setBookForm(p=>({...p,address:e.target.value}))} placeholder="Street address" />
+                <AddressInput value={bookForm.address} onChange={v=>setBookForm(p=>({...p,address:v}))} placeholder="Street address" />
               </div>
               <div className="form-row">
                 <div className="form-group">
@@ -1503,7 +1609,7 @@ function JannasDashboard() {
               <SavedPropertyPicker properties={properties} form={editJob} setForm={setEditJob} />
               <div className="form-group">
                 <label className="form-label">Job Site Address</label>
-                <input className="form-input" value={editJob.address} onChange={e=>setEditJob(p=>({...p,address:e.target.value}))} />
+                <AddressInput value={editJob.address} onChange={v=>setEditJob(p=>({...p,address:v}))} />
               </div>
               <div className="form-row">
                 <div className="form-group">
@@ -1679,7 +1785,7 @@ function JannasDashboard() {
               </div>
               <div className="form-group">
                 <label className="form-label">Address</label>
-                <input className="form-input" value={clientForm.address} onChange={e=>setClientForm(p=>({...p,address:e.target.value}))} placeholder="Billing / primary address" />
+                <AddressInput value={clientForm.address} onChange={v=>setClientForm(p=>({...p,address:v}))} placeholder="Billing / primary address" />
               </div>
             </div>
             <div className="modal-footer">
@@ -1715,7 +1821,7 @@ function JannasDashboard() {
               </div>
               <div className="form-group">
                 <label className="form-label">Address</label>
-                <input className="form-input" value={editClient.address||""} onChange={e=>setEditClient(p=>({...p,address:e.target.value}))} />
+                <AddressInput value={editClient.address||""} onChange={v=>setEditClient(p=>({...p,address:v}))} />
               </div>
               <div className="form-group">
                 <label className="form-label">Saved Properties</label>
@@ -1734,8 +1840,8 @@ function JannasDashboard() {
                 <div className="form-row" style={{marginTop:8}}>
                   <input className="form-input" placeholder="Label (optional, e.g. Unit 4B)"
                     value={newPropertyForm.label} onChange={e=>setNewPropertyForm(p=>({...p, label:e.target.value}))} />
-                  <input className="form-input" placeholder="Address"
-                    value={newPropertyForm.address} onChange={e=>setNewPropertyForm(p=>({...p, address:e.target.value}))} />
+                  <AddressInput placeholder="Address"
+                    value={newPropertyForm.address} onChange={v=>setNewPropertyForm(p=>({...p, address:v}))} />
                 </div>
                 <button className="btn btn-ghost" style={{marginTop:8}} onClick={handleAddProperty}>+ Add Property</button>
               </div>

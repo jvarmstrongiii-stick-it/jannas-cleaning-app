@@ -65,6 +65,18 @@ properties yet — e.g. Invoice Simple imports, which arrive address-less) — t
 insert is wrapped in its own non-fatal try/catch so a failure there never
 blocks the client/job/note creation that triggered it.
 
+## Address suggestions (AddressInput)
+Every address field (Book/Edit Job, Add/Edit Client, ClientPicker's new
+client, Edit Client's Add Property) is `<AddressInput value onChange>` —
+a top-level component (not an inner one, so no remount-per-keystroke).
+Type-ahead comes from Photon (photon.komoot.io, free OpenStreetMap data,
+no key), debounced 300ms, min 4 chars, biased to Somers Point NJ and
+boxed to NJ/PA/DE/NY/MD (`PHOTON_BIAS` / `PHOTON_BBOX`). It's a
+convenience only: the value is still free text, and lookup failures are
+swallowed, so if Photon is down people just type. Upgrade path if quality
+is ever not enough: swap the fetch in `AddressInput` for Google Places.
+Note: Claude's cloud sandbox can't reach photon.komoot.io, so test live.
+
 ## Importing clients from Invoice Simple
 Janna's billing lives in Invoice Simple; its "Invoice Summary" .xlsx export
 (copy in Google Drive → "Janna cleaning app" folder) was the source of the
