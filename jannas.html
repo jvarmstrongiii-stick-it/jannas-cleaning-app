@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect } = React;
 
-const APP_REV = 22;
+const APP_REV = 23;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -1311,8 +1311,8 @@ function JannasDashboard() {
               const lastJob = clientJobs[clientJobs.length-1];
               return (
                 <div key={c.id} className="client-row">
-                  <div className="client-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
-                  <div style={{flex:1}}>
+                  <div className="client-avatar" style={{background:colorFor(c.id), ...(isOwner && {cursor:"pointer"})}} onClick={isOwner ? () => setEditClient({...c}) : undefined}>{c.name[0]}</div>
+                  <div style={{flex:1, ...(isOwner && {cursor:"pointer"})}} title={isOwner ? "Edit client" : undefined} onClick={isOwner ? () => setEditClient({...c}) : undefined}>
                     <div className="client-name">{c.name}</div>
                     <div className="client-addr">{c.address || "No address on file"}</div>
                   </div>

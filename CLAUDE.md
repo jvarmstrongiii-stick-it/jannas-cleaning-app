@@ -36,7 +36,9 @@ from jobs. `jobs.client_id` and `notes.client_id` are foreign keys into it.
 Job/note forms use a client picker (select existing, or "+ New client…"
 inline). There's also now a dedicated "+ Add Client" button and ✏️ edit
 per row on the Clients screen (owner-only, like Book/Edit Job) for
-creating/editing a client without going through a job or note.
+creating/editing a client without going through a job or note. Clicking
+the client's avatar/name opens the same Edit Client modal (owner-only;
+inert for cleaners, matching the Schedule slot click pattern).
 
 `jobs.color` / `notes.color` were dropped from the original prototype's
 mock data — badge and dot colors are derived client-side from `status`
