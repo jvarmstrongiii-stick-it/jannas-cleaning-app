@@ -61,6 +61,16 @@ and via `handleAddClient()` for the standalone Add Client modal) — that
 insert is wrapped in its own non-fatal try/catch so a failure there never
 blocks the client/job/note creation that triggered it.
 
+## Importing clients from Invoice Simple
+Janna's billing lives in Invoice Simple; its "Invoice Summary" .xlsx export
+(copy in Google Drive → "Janna cleaning app" folder) was the source of the
+Sep 30 2026 client import. Gotchas: it has TWO phone columns (`Mobile` and
+`Phone`) — read both, prefer Mobile; the first import only read `Phone` and
+dropped 5 numbers (fixed r22). It has NO address column — Janna sometimes
+types the address into the client name (e.g. "Lisa Schatz 1705 Wesley"),
+so split that into `address` and seed a `properties` row. One row per
+invoice, so de-dupe clients by name.
+
 ## Roles: owner vs cleaner
 `cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every
 new row, including self-adds via the picker — nobody can grant themselves
