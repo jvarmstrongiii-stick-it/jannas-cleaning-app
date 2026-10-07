@@ -103,7 +103,9 @@ in-progress app-support migration (jobs.price, invoice_items.job_id, and
 RPCs save_invoice / record_payment / delete_payment / delete_invoice);
 partially applied — save_invoice, delete_payment and delete_invoice still
 pending because Supabase MCP asks the user to confirm any SQL containing
-DELETE (times out if nobody approves within 60s).
+DELETE (times out if nobody approves within 60s). Those parts are in
+`supabase/010b_finish_in_sql_editor.sql` for the user to paste into the
+Supabase SQL Editor — prefer that route for any DELETE-containing SQL.
 
 ## Roles: owner vs cleaner
 `cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every
