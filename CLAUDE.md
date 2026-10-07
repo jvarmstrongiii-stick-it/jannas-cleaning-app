@@ -144,8 +144,16 @@ sales tax by quarter, and expenses — all computed client-side from
 table that grows). Accrual revenue = account 4000 ledger rows by entry_date;
 cash revenue = each payment × (invoice subtotal ÷ total), i.e. pre-tax share.
 Expenses: `expenses` table (migration 011) + `record_expense()` RPC posting
-Dr expense account / Cr 1000 Bank. Category "NJ sales tax payment" posts
-Dr 2100 instead (reduces tax owed, NOT a P&L expense). Deleting an expense
+Dr expense account / Cr 1000 Bank. NJ sales tax payments are separate
+(migration 012): tax card → "Pay NJ Sales Tax" → `record_tax_payment()`
+posts Dr 2100 / Cr 1000 and stores `expenses.method` (Check|EFT),
+`reference` (check # / EFT confirmation #) and `tax_period` ("Q3 2026").
+"Paid to NJ" per quarter uses tax_period (a Q3 return is paid in Oct), not
+the payment date. Tax payments are excluded from the Expenses list/P&L.
+General Ledger view (Books → 📒 General Ledger): per account, opening
+balance (entries before the period) → entries → closing, signed by the
+account's normal side (asset/expense = debit); trial-balance check shows
+period + all-time debits = credits; invoice/payment rows open the invoice. Deleting an expense
 is a plain client delete — `ledger_entries.expense_id` is ON DELETE CASCADE.
 "Bank" only reflects activity recorded in the app (no opening balance).
 Print/PDF prints the `.print-area` wrapper (same @media print trick as

@@ -24,6 +24,7 @@ schedule, clients, and cleaner notes.
 ├── supabase/010_invoice_app_support.sql      # jobs.price, invoice_items.job_id, invoice RPCs
 ├── supabase/010b_finish_in_sql_editor.sql    # the DELETE-containing part of 010, run via SQL Editor
 ├── supabase/011_expenses.sql                 # expenses table + record_expense RPC (Books tab)
+├── supabase/012_tax_payments.sql             # NJ sales tax payments w/ check / EFT # (record_tax_payment)
 ├── CLAUDE.md                         # commit/deploy rules for future sessions
 ├── vercel.json                       # serves jannas.html at the site root
 └── .vercelignore                     # keeps docs/SQL off the public site

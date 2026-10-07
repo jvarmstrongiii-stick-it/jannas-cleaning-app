@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 30;
+const APP_REV = 31;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -536,8 +536,10 @@ const BOOKS_PERIODS = [
 const EXPENSE_CATEGORIES = [
   { code:"5000", label:"Supplies" }, { code:"5100", label:"Labor / Subcontractors" },
   { code:"5200", label:"Vehicle & Fuel" }, { code:"5900", label:"Other Expenses" },
-  { code:"2100", label:"NJ sales tax payment" },
 ];
+// NJ sales tax payments are NOT a P&L expense: they're recorded via the
+// tax card's "Pay NJ Sales Tax" (record_tax_payment RPC → Dr 2100 / Cr 1000).
+const TAX_METHODS = ["Check", "EFT"];
 // Built from numeric Date(y, m, d) like buildCalendarCells -- no string parsing.
 function periodRange(id, todayStr) {
   const y = Number(todayStr.slice(0,4)), m = Number(todayStr.slice(5,7)) - 1;
@@ -1072,6 +1074,9 @@ function JannasDashboard() {
   const [booksPeriod, setBooksPeriod] = useState("this_year");
   const [booksBasis, setBooksBasis] = useState("accrual"); // "accrual" | "cash"
   const [expenseForm, setExpenseForm] = useState(null);
+  const [booksView, setBooksView] = useState("summary"); // "summary" | "ledger"
+  const [glAccount, setGlAccount] = useState("all");
+  const [taxPayForm, setTaxPayForm] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true); });
@@ -1726,6 +1731,24 @@ function JannasDashboard() {
     } catch (err) { showNotif("⚠️ " + err.message); }
   }
 
+  async function handleRecordTaxPayment() {
+    if (!requireOwner()) return;
+    const f = taxPayForm;
+    const amt = Number(f.amount);
+    if (!(amt > 0)) { showNotif("⚠️ Enter an amount"); return; }
+    if (!f.date) { showNotif("⚠️ Pick a date"); return; }
+    if (!f.reference.trim() && !window.confirm(`No ${f.method === "EFT" ? "EFT confirmation" : "check"} number entered. Save anyway?`)) return;
+    try {
+      const { error } = await supabase.rpc('record_tax_payment', {
+        p_date: f.date, p_amount: amt, p_method: f.method, p_reference: f.reference.trim(), p_period: f.period,
+      });
+      if (error) throw error;
+      setTaxPayForm(null);
+      await loadAll({ silent:true });
+      showNotif("✓ Sales tax payment recorded");
+    } catch (err) { showNotif("⚠️ " + err.message); }
+  }
+
   async function handleDeleteExpense(x) {
     if (!requireOwner()) return;
     if (!window.confirm(`Remove the ${fmtMoney(x.amount)} expense from ${fmtDate(x.expense_date)}?`)) return;
@@ -2146,6 +2169,76 @@ function JannasDashboard() {
     );
   };
 
+  // General Ledger: per account, opening balance → entries in period → closing.
+  // Balances use each account's normal side (assets/expenses = debit).
+  const renderLedger = (from, to, acctById) => {
+    const invById = Object.fromEntries(invoices.map(i => [i.id, i]));
+    const normalDebit = a => a.type === "asset" || a.type === "expense";
+    const signed = (a, l) => normalDebit(a) ? Number(l.debit) - Number(l.credit) : Number(l.credit) - Number(l.debit);
+    const accts = accounts.filter(a => glAccount === "all" || a.id === glAccount);
+    const inPeriod = ledger.filter(l => l.entry_date >= from && l.entry_date <= to);
+    const totDr = inPeriod.reduce((t, l) => t + Number(l.debit), 0);
+    const totCr = inPeriod.reduce((t, l) => t + Number(l.credit), 0);
+    const allDr = ledger.reduce((t, l) => t + Number(l.debit), 0), allCr = ledger.reduce((t, l) => t + Number(l.credit), 0);
+    const balanced = Math.abs(totDr - totCr) < 0.005 && Math.abs(allDr - allCr) < 0.005;
+    const r2 = n => Math.round(n * 100) / 100;
+    const sections = accts.map(a => {
+      const opening = ledger.filter(l => l.account_id === a.id && l.entry_date < from).reduce((t, l) => t + signed(a, l), 0);
+      const rows = inPeriod.filter(l => l.account_id === a.id)
+        .sort((x, y) => x.entry_date.localeCompare(y.entry_date) || (x.created_at || "").localeCompare(y.created_at || ""));
+      let run = opening;
+      const lines = rows.map(l => { run += signed(a, l); return { l, bal: run }; });
+      return { a, opening, lines, closing: run };
+    }).filter(sct => glAccount !== "all" || sct.lines.length || Math.abs(sct.opening) > 0.004);
+    const refFor = l => {
+      if (l.invoice_id && invById[l.invoice_id]) return invById[l.invoice_id].invoice_number;
+      return "";
+    };
+    return (
+      <div className="print-area">
+        <div className="card">
+          <div className="card-header">
+            <div className="card-title">General Ledger</div>
+            <span style={{fontSize:12,color:"var(--slate-mid)"}}>{BUSINESS.name} · {fmtDateY(from)} – {fmtDateY(to)} · accrual basis</span>
+          </div>
+          <div style={{padding:"10px 18px",fontSize:13,display:"flex",gap:18,flexWrap:"wrap",borderBottom:"1px solid #eef2f5"}}>
+            <span>Period debits <b>{fmtMoney(totDr)}</b></span>
+            <span>Period credits <b>{fmtMoney(totCr)}</b></span>
+            <span style={{color: balanced ? "#2E7A4F" : "var(--coral)", fontWeight:600}}>
+              {balanced ? "✓ Books balance (debits = credits)" : "⚠️ Out of balance — tell Claude"}
+            </span>
+          </div>
+        </div>
+        {sections.length === 0 && <div className="card"><div className="empty"><div className="empty-icon">📒</div><div className="empty-text">No activity in this period</div></div></div>}
+        {sections.map(({ a, opening, lines, closing }) => (
+          <div className="card" key={a.id}>
+            <div className="card-header">
+              <div className="card-title" style={{fontSize:17}}>{a.code} · {a.name}</div>
+              <span style={{fontSize:12,color:"var(--slate-mid)"}}>{a.type} · {lines.length} entr{lines.length === 1 ? "y" : "ies"}</span>
+            </div>
+            <table className="rpt">
+              <thead><tr><th>Date</th><th>Description</th><th>Ref</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
+              <tbody>
+                <tr className="sub"><td colSpan={5}>Opening balance</td><td className="num">{fmtMoney(r2(opening))}</td></tr>
+                {lines.map(({ l, bal }) => (
+                  <tr key={l.id} style={l.invoice_id ? {cursor:"pointer"} : undefined} onClick={l.invoice_id ? () => setViewInvoiceId(l.invoice_id) : undefined}>
+                    <td style={{whiteSpace:"nowrap"}}>{fmtDate(l.entry_date)}</td>
+                    <td>{l.memo}</td>
+                    <td style={{color:"var(--slate-mid)",whiteSpace:"nowrap"}}>{refFor(l)}</td>
+                    <td className="num">{Number(l.debit) ? fmtMoney(l.debit) : ""}</td>
+                    <td className="num">{Number(l.credit) ? fmtMoney(l.credit) : ""}</td>
+                    <td className={`num ${bal < -0.004 ? "neg" : ""}`}>{fmtMoney(r2(bal))}</td>
+                  </tr>
+                ))}
+                <tr className="total"><td colSpan={5}>Closing balance</td><td className="num">{fmtMoney(r2(closing))}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
   const renderBooks = () => {
     if (!session) {
       return (
@@ -2219,36 +2312,55 @@ function JannasDashboard() {
         const inv = invById[p.invoice_id];
         return t + (inv && Number(inv.total) > 0 ? Number(p.amount) * Number(inv.tax_amount) / Number(inv.total) : 0);
       }, 0);
-      const paidNJ = ledger.filter(l => acctById[l.account_id]?.code === "2100" && l.source === "expense" && inQ(l.entry_date))
-        .reduce((t, l) => t + Number(l.debit) - Number(l.credit), 0);
+      // attribute each payment to the quarter it covers (tax_period), else by date paid
+      const qLabel = `Q${q+1} ${year}`;
+      const paidNJ = expenses.filter(x => acctById[x.account_id]?.code === "2100" && (x.tax_period ? x.tax_period === qLabel : inQ(x.expense_date)))
+        .reduce((t, x) => t + Number(x.amount), 0);
       return { label:`Q${q+1} ${year}`, taxable: qInv.reduce((t,i)=>t+Number(i.taxable_amount),0),
         charged: qInv.reduce((t,i)=>t+Number(i.tax_amount),0), collected, paidNJ };
     });
     const taxOwed = ledger.filter(l => acctById[l.account_id]?.code === "2100").reduce((t, l) => t + Number(l.credit) - Number(l.debit), 0);
-    const periodExpenses = expenses.filter(x => inRange(x.expense_date));
+    const periodExpenses = expenses.filter(x => inRange(x.expense_date) && acctById[x.account_id]?.code !== "2100");
+    const taxPayments = expenses.filter(x => acctById[x.account_id]?.code === "2100" && (x.tax_period ? x.tax_period.endsWith(year) : x.expense_date.startsWith(year)));
+    const quarterOptions = [];
+    for (let yy = Number(todayStr.slice(0,4)); yy >= Number(todayStr.slice(0,4)) - 1; yy--) for (let qq = 4; qq >= 1; qq--) quarterOptions.push(`Q${qq} ${yy}`);
+    const curQ = Math.floor((Number(todayStr.slice(5,7)) - 1) / 3);
+    const lastQLabel = curQ === 0 ? `Q4 ${Number(todayStr.slice(0,4)) - 1}` : `Q${curQ} ${todayStr.slice(0,4)}`;
     const periodLabel = BOOKS_PERIODS.find(p => p.id === booksPeriod)?.label;
 
     return (
       <>
         <div className="books-bar no-print">
+          <div className="filter-tabs" style={{border:"none",padding:0}}>
+            {[["summary","📊 Summary"],["ledger","📒 General Ledger"]].map(([v,l]) => (
+              <button key={v} className={`filter-tab ${booksView===v?"active":""}`} onClick={()=>setBooksView(v)}>{l}</button>
+            ))}
+          </div>
           <select className="form-select" value={booksPeriod} onChange={e=>setBooksPeriod(e.target.value)}>
             {BOOKS_PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
-          <div className="filter-tabs" style={{border:"none",padding:0}}>
+          {booksView === "ledger" && (
+            <select className="form-select" value={glAccount} onChange={e=>setGlAccount(e.target.value)}>
+              <option value="all">All accounts</option>
+              {accounts.map(a => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+            </select>
+          )}
+          {booksView === "summary" && <div className="filter-tabs" style={{border:"none",padding:0}}>
             {["accrual","cash"].map(b => (
               <button key={b} className={`filter-tab ${booksBasis===b?"active":""}`} onClick={()=>setBooksBasis(b)}>
                 {b === "accrual" ? "Accrual (when invoiced)" : "Cash (when paid)"}
               </button>
             ))}
-          </div>
+          </div>}
           <button className="btn btn-ghost" style={{marginLeft:"auto"}} onClick={()=>window.print()}>🖨 Print / PDF</button>
         </div>
 
+        {booksView === "ledger" ? renderLedger(from, to, acctById) : (
         <div className="print-area">
           <div className="stats-grid">
             {[
               { label:"Revenue", value: fmtMoney(revenue), sub: cash ? "Collected (excl. tax)" : "Invoiced (excl. tax)", accent:"#E8F5EE" },
-              { label:"Expenses", value: fmtMoney(totalExp), sub:`${periodExpenses.filter(x => acctById[x.account_id]?.type === "expense").length} entries`, accent:"#FEF0EC" },
+              { label:"Expenses", value: fmtMoney(totalExp), sub:`${periodExpenses.length} entries`, accent:"#FEF0EC" },
               { label:"Net Profit", value: fmtMoney(net), sub: periodLabel, accent:"#E8F4F8" },
               { label:"Sales Tax Owed", value: fmtMoney(taxOwed), sub:"Collected, not yet paid to NJ", accent:"#FFF8EC" },
             ].map((st,i) => (
@@ -2323,7 +2435,12 @@ function JannasDashboard() {
           <div className="card">
             <div className="card-header">
               <div className="card-title">NJ Sales Tax — {year}</div>
-              <span style={{fontSize:12,color:"var(--slate-mid)"}}>Owed now: <b>{fmtMoney(taxOwed)}</b></span>
+              <div style={{display:"flex",alignItems:"center",gap:12}}>
+                <span style={{fontSize:12,color:"var(--slate-mid)"}}>Owed now: <b>{fmtMoney(taxOwed)}</b></span>
+                <button className="btn btn-primary no-print" onClick={()=>setTaxPayForm({
+                  date: todayStr, amount: taxOwed > 0 ? r2(taxOwed).toFixed(2) : "", method:"Check", reference:"", period: lastQLabel, options: quarterOptions,
+                })}>💵 Pay NJ Sales Tax</button>
+              </div>
             </div>
             <ColumnChart height={190}
               labels={quarters.map(q => q.label.split(" ")[0])}
@@ -2349,8 +2466,29 @@ function JannasDashboard() {
               </tbody>
             </table>
             <div style={{fontSize:11,color:"var(--slate-mid)",padding:"10px 18px"}}>
-              "Tax charged" counts invoices by invoice date; "Tax collected" counts the tax share of payments received. Record payments to NJ with + Expense → "NJ sales tax payment".
+              "Tax charged" counts invoices by invoice date; "Tax collected" counts the tax share of payments received; "Paid to NJ" counts each payment toward the quarter it covers.
             </div>
+            <div className="card-header" style={{borderTop:"1px solid #eef2f5"}}>
+              <div className="card-title" style={{fontSize:16}}>Payments to NJ — {year}</div>
+              <span style={{fontSize:12,color:"var(--slate-mid)"}}>{taxPayments.length} recorded</span>
+            </div>
+            {taxPayments.length === 0
+              ? <div className="chart-empty">No sales tax payments recorded for {year} yet.</div>
+              : <table className="rpt">
+                  <thead><tr><th>Date paid</th><th>Covers</th><th>Method</th><th>Check / EFT #</th><th className="num">Amount</th><th className="no-print"></th></tr></thead>
+                  <tbody>
+                    {taxPayments.map(x => (
+                      <tr key={x.id}>
+                        <td>{fmtDateY(x.expense_date)}</td>
+                        <td>{x.tax_period || "—"}</td>
+                        <td>{x.method || "—"}</td>
+                        <td>{x.reference ? `#${x.reference}` : "—"}</td>
+                        <td className="num">{fmtMoney(x.amount)}</td>
+                        <td className="no-print" style={{width:36}}><button className="btn-icon danger" title="Remove" onClick={()=>handleDeleteExpense(x)}>🗑</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>}
           </div>
 
           <div className="card">
@@ -2377,6 +2515,7 @@ function JannasDashboard() {
                 </table>}
           </div>
         </div>
+        )}
       </>
     );
   };
@@ -2689,6 +2828,55 @@ function JannasDashboard() {
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={()=>setPaymentForm(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleRecordPayment}>Record Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PAY SALES TAX MODAL */}
+      {taxPayForm && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setTaxPayForm(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Pay NJ Sales Tax</div>
+              <button className="modal-close" onClick={()=>setTaxPayForm(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Quarter covered</label>
+                  <select className="form-select" value={taxPayForm.period} onChange={e=>setTaxPayForm(p=>({...p,period:e.target.value}))}>
+                    {taxPayForm.options.map(o=><option key={o}>{o}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Date paid</label>
+                  <input className="form-input" type="date" value={taxPayForm.date} onChange={e=>setTaxPayForm(p=>({...p,date:e.target.value}))} />
+                </div>
+              </div>
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Amount</label>
+                  <input className="form-input" type="number" min="0" step="0.01" inputMode="decimal" value={taxPayForm.amount}
+                    onChange={e=>setTaxPayForm(p=>({...p,amount:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Method</label>
+                  <select className="form-select" value={taxPayForm.method} onChange={e=>setTaxPayForm(p=>({...p,method:e.target.value}))}>
+                    {TAX_METHODS.map(m=><option key={m}>{m}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{taxPayForm.method === "EFT" ? "EFT confirmation #" : "Check #"}</label>
+                <input className="form-input" value={taxPayForm.reference} onChange={e=>setTaxPayForm(p=>({...p,reference:e.target.value}))}
+                  placeholder={taxPayForm.method === "EFT" ? "Confirmation number from NJ" : "e.g. 1234"} autoFocus />
+              </div>
+              <div className="signin-msg">Amount defaults to everything currently owed — change it to the amount on the return you're paying. This lowers sales tax owed; it isn't counted as a business expense.</div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setTaxPayForm(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleRecordTaxPayment}>Record Payment</button>
             </div>
           </div>
         </div>
