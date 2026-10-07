@@ -150,6 +150,14 @@ is a plain client delete — `ledger_entries.expense_id` is ON DELETE CASCADE.
 "Bank" only reflects activity recorded in the app (no opening balance).
 Print/PDF prints the `.print-area` wrapper (same @media print trick as
 invoices).
+Charts are hand-rolled SVG components (`ColumnChart`, `HBarChart`, no chart
+library) following the dataviz method: palette slots blue `#2a78d6` /
+orange `#eb6834` (validated CVD-safe on #fff), ≤24px bars with 4px rounded
+data-ends, hairline grid, hover tooltips, legend for 2+ series, the tables
+kept below each chart as the exact-number view. Revenue = blue, expenses =
+orange everywhere. To preview the app with fake data in Playwright, swap
+the CDN <script> tags for local node_modules copies and a mock
+`window.supabase` (the sandbox can't reach unpkg/jsdelivr).
 
 ## Roles: owner vs cleaner
 `cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every

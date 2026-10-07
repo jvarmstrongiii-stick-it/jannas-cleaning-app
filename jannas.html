@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 29;
+const APP_REV = 30;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -408,6 +408,18 @@ const styles = `
   .line-grid { display: grid; grid-template-columns: 1fr 64px 92px 52px 28px; gap: 6px; align-items: center; margin-bottom: 6px; }
   .line-grid.head { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--slate-mid); }
   .job-pick { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; cursor: pointer; }
+  /* CHARTS (see dataviz method: 2px gaps, 4px rounded data-ends, hairline grid, text never in series color) */
+  .chart { position: relative; padding: 4px 18px 14px; }
+  .chart-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--slate-mid); padding: 0 0 8px; }
+  .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chart-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .chart svg text { font-family: var(--font-body); }
+  .chart-tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid #e3e8ec; border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.10); padding: 8px 10px; font-size: 12px; color: var(--slate); min-width: 140px; z-index: 5; }
+  .chart-tip .row { display: flex; justify-content: space-between; gap: 14px; font-variant-numeric: tabular-nums; }
+  .chart-tip .key { display: inline-flex; align-items: center; gap: 6px; color: var(--slate-mid); }
+  .chart-tip i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+  .chart-empty { font-size: 12px; color: var(--slate-mid); padding: 8px 18px 16px; }
   .books-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
   .books-bar .form-select { width: auto; }
   .rpt { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -556,6 +568,135 @@ async function fetchAll(make) {
 }
 function monthKey(d) { return (d || "").slice(0,7); }
 function monthLabel(k) { return new Date(Number(k.slice(0,4)), Number(k.slice(5,7)) - 1, 1).toLocaleDateString("en-US", { month:"short", year:"numeric" }); }
+
+// ── CHARTS ─────────────────────────────────────────────────────────
+// Hand-rolled SVG (no chart lib). Palette = dataviz reference slots 1-2,
+// validated (CVD ΔE 24.7, all checks pass on #fff).
+const CHART_BLUE = "#2a78d6";
+const CHART_ORANGE = "#eb6834";
+const CHART_GRID = "#eef2f5";
+const CHART_INK = "#5a6b7b";
+
+function useWidth() {
+  const ref = React.useRef(null);
+  const [w, setW] = useState(600);
+  useEffect(() => {
+    if (!ref.current) return;
+    setW(ref.current.clientWidth || 600);
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(([e]) => setW(e.contentRect.width || 600));
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, w];
+}
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const raw = v / 4, p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * p).find(x => x >= raw);
+  return step * 4;
+}
+function fmtShort(n) {
+  if (Math.abs(n) >= 1000) { const k = n / 1000; return "$" + (Number.isInteger(k) ? k : k.toFixed(1)) + "k"; }
+  return "$" + Math.round(n);
+}
+// rounded top corners (4px) on the data end, square at the baseline
+function colPath(x, y, w, h) {
+  const r = Math.min(4, w / 2, h);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+function barPath(x, y, w, h) { // horizontal: rounded right end
+  const r = Math.min(4, h / 2, w);
+  return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
+}
+
+function ColumnChart({ labels, series, height = 220, extra }) {
+  const [ref, width] = useWidth();
+  const [hover, setHover] = useState(null);
+  const m = { t: 10, r: 6, b: 26, l: 46 };
+  const pw = Math.max(50, width - m.l - m.r), ph = height - m.t - m.b;
+  const max = niceMax(Math.max(0, ...series.flatMap(s => s.values)));
+  const y = v => m.t + ph - (v / max) * ph;
+  const gw = pw / labels.length, k = series.length;
+  const bw = Math.max(4, Math.min(24, (gw - 10 - (k - 1) * 2) / k));
+  const gx = i => m.l + i * gw + (gw - (bw * k + (k - 1) * 2)) / 2;
+  const ticks = [0, 1, 2, 3, 4].map(i => (max / 4) * i);
+  return (
+    <div className="chart" ref={ref}>
+      {k > 1 && <div className="chart-legend">{series.map(s => <span key={s.name}><i style={{background:s.color}}></i>{s.name}</span>)}</div>}
+      <svg width="100%" height={height} role="img" aria-label={series.map(s => s.name).join(" vs ")} onMouseLeave={() => setHover(null)}>
+        {ticks.map(t => (
+          <g key={t}>
+            <line x1={m.l} x2={m.l + pw} y1={y(t)} y2={y(t)} stroke={CHART_GRID} strokeWidth="1" />
+            <text x={m.l - 8} y={y(t) + 4} textAnchor="end" fontSize="10" fill={CHART_INK}>{fmtShort(t)}</text>
+          </g>
+        ))}
+        {labels.map((lab, i) => (
+          <g key={lab + i}>
+            {hover === i && <rect x={m.l + i * gw + 2} y={m.t} width={gw - 4} height={ph} fill="#f4f8fb" rx="4" />}
+            {series.map((s, j) => {
+              const v = s.values[i];
+              if (!(v > 0)) return null;
+              const h = Math.max(1, ph * v / max);
+              return <path key={s.name} d={colPath(gx(i) + j * (bw + 2), m.t + ph - h, bw, h)} fill={s.color} />;
+            })}
+            <text x={m.l + i * gw + gw / 2} y={height - 8} textAnchor="middle" fontSize="10" fill={CHART_INK}>{lab}</text>
+            <rect x={m.l + i * gw} y={m.t} width={gw} height={ph + m.b} fill="transparent"
+              onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)} />
+          </g>
+        ))}
+      </svg>
+      {hover !== null && (
+        <div className="chart-tip" style={{ left: Math.min(Math.max(0, m.l + hover * gw + gw / 2 - 70), width - 160), top: 30 }}>
+          <div style={{fontWeight:600,marginBottom:4}}>{labels[hover]}</div>
+          {series.map(s => (
+            <div key={s.name} className="row"><span className="key"><i style={{background:s.color}}></i>{s.name}</span><span>{fmtMoney(s.values[hover])}</span></div>
+          ))}
+          {extra && extra(hover)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HBarChart({ rows, max: cap = 8, color = CHART_BLUE }) {
+  const [ref, width] = useWidth();
+  const [hover, setHover] = useState(null);
+  const sorted = [...rows].filter(r => r.value > 0).sort((a, b) => b.value - a.value);
+  const shown = sorted.length > cap
+    ? [...sorted.slice(0, cap - 1), { label: `Other (${sorted.length - cap + 1})`, value: sorted.slice(cap - 1).reduce((t, r) => t + r.value, 0) }]
+    : sorted;
+  const total = sorted.reduce((t, r) => t + r.value, 0);
+  if (shown.length === 0) return <div className="chart-empty">Nothing to chart for this period yet.</div>;
+  const lw = Math.min(170, width * 0.38), vw = 78, rh = 30, bh = 16;
+  const pw = Math.max(40, width - lw - vw - 36);
+  const top = shown[0].value;
+  const trunc = t => t.length > 24 ? t.slice(0, 23) + "…" : t;
+  return (
+    <div className="chart" ref={ref}>
+      <svg width="100%" height={shown.length * rh + 4} role="img" aria-label="Ranked bar chart" onMouseLeave={() => setHover(null)}>
+        {shown.map((r, i) => {
+          const w = Math.max(2, pw * r.value / top), yy = i * rh + (rh - bh) / 2;
+          return (
+            <g key={r.label} onMouseEnter={() => setHover(i)} onTouchStart={() => setHover(i)}>
+              <rect x="0" y={i * rh} width={width - 36} height={rh} fill={hover === i ? "#f4f8fb" : "transparent"} rx="4" />
+              <text x={lw - 10} y={yy + bh - 4} textAnchor="end" fontSize="12" fill="#2C3E50">{trunc(r.label)}</text>
+              <path d={barPath(lw, yy, w, bh)} fill={color} />
+              <text x={lw + w + 6} y={yy + bh - 4} fontSize="11" fill={CHART_INK}>{fmtShort(r.value)}</text>
+            </g>
+          );
+        })}
+      </svg>
+      {hover !== null && (
+        <div className="chart-tip" style={{ left: Math.min(lw, width - 170), top: hover * rh + rh + 4 }}>
+          <div style={{fontWeight:600,marginBottom:4}}>{shown[hover].label}</div>
+          <div className="row"><span className="key">Amount</span><span>{fmtMoney(shown[hover].value)}</span></div>
+          <div className="row"><span className="key">Share</span><span>{total ? Math.round(shown[hover].value / total * 100) : 0}%</span></div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function lineTotals(lines, taxRate) {
   const r2 = n => Math.round(n * 100) / 100;
@@ -2054,6 +2195,18 @@ function JannasDashboard() {
       if (byMonth[monthKey(l.entry_date)]) byMonth[monthKey(l.entry_date)].exp += amt;
     });
     const totalExp = Object.values(expByAcct).reduce((t, x) => t + x.amt, 0);
+    // Revenue by client (same basis as the P&L)
+    const revByClient = {};
+    if (cash) {
+      payments.filter(p => inRange(p.paid_date)).forEach(p => {
+        const inv = invById[p.invoice_id];
+        if (!inv || !(Number(inv.total) > 0)) return;
+        revByClient[inv.client_id] = (revByClient[inv.client_id] || 0) + Number(p.amount) * Number(inv.subtotal) / Number(inv.total);
+      });
+    } else {
+      invoices.filter(i => inRange(i.invoice_date)).forEach(i => { revByClient[i.client_id] = (revByClient[i.client_id] || 0) + Number(i.subtotal); });
+    }
+    const clientRows = Object.entries(revByClient).map(([id, v]) => ({ label: clientById(id)?.name || "Unknown", value: r2(v) }));
     const net = revenue - totalExp;
 
     // Sales tax by quarter for the period's year
@@ -2107,6 +2260,32 @@ function JannasDashboard() {
             ))}
           </div>
 
+          {months.length > 1 && (
+            <div className="card">
+              <div className="card-header">
+                <div className="card-title">Revenue vs Expenses</div>
+                <span style={{fontSize:12,color:"var(--slate-mid)"}}>by month · hover for net</span>
+              </div>
+              <ColumnChart
+                labels={months.map(mk => new Date(Number(mk.slice(0,4)), Number(mk.slice(5,7)) - 1, 1).toLocaleDateString("en-US", { month:"short" }))}
+                series={[
+                  { name:"Revenue", color: CHART_BLUE, values: months.map(mk => r2(byMonth[mk].rev)) },
+                  { name:"Expenses", color: CHART_ORANGE, values: months.map(mk => r2(byMonth[mk].exp)) },
+                ]}
+                extra={i => { const n = r2(byMonth[months[i]].rev - byMonth[months[i]].exp);
+                  return <div className="row" style={{borderTop:"1px solid #eef2f5",marginTop:4,paddingTop:4,fontWeight:600}}><span>Net</span><span style={{color: n < 0 ? "var(--coral)" : undefined}}>{fmtMoney(n)}</span></div>; }}
+              />
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-header">
+              <div className="card-title">Top Clients</div>
+              <span style={{fontSize:12,color:"var(--slate-mid)"}}>revenue excl. tax · {periodLabel}</span>
+            </div>
+            <HBarChart rows={clientRows} />
+          </div>
+
           <div className="card">
             <div className="card-header">
               <div className="card-title">Profit &amp; Loss</div>
@@ -2146,6 +2325,14 @@ function JannasDashboard() {
               <div className="card-title">NJ Sales Tax — {year}</div>
               <span style={{fontSize:12,color:"var(--slate-mid)"}}>Owed now: <b>{fmtMoney(taxOwed)}</b></span>
             </div>
+            <ColumnChart height={190}
+              labels={quarters.map(q => q.label.split(" ")[0])}
+              series={[
+                { name:"Tax charged", color: CHART_BLUE, values: quarters.map(q => r2(q.charged)) },
+                { name:"Tax collected", color: CHART_ORANGE, values: quarters.map(q => r2(q.collected)) },
+              ]}
+              extra={i => <div className="row" style={{borderTop:"1px solid #eef2f5",marginTop:4,paddingTop:4}}><span className="key">Paid to NJ</span><span>{fmtMoney(quarters[i].paidNJ)}</span></div>}
+            />
             <table className="rpt">
               <thead><tr><th>Quarter</th><th className="num">Taxable sales</th><th className="num">Tax charged</th><th className="num">Tax collected</th><th className="num">Paid to NJ</th></tr></thead>
               <tbody>
@@ -2171,6 +2358,7 @@ function JannasDashboard() {
               <div className="card-title">Expenses — {periodLabel}</div>
               <span style={{fontSize:12,color:"var(--slate-mid)"}}>{periodExpenses.length} total</span>
             </div>
+            {Object.keys(expByAcct).length > 0 && <HBarChart rows={Object.values(expByAcct).map(x => ({ label: x.name, value: r2(x.amt) }))} color={CHART_ORANGE} />}
             {periodExpenses.length === 0
               ? <div className="empty"><div className="empty-icon">🧾</div><div className="empty-text">No expenses in this period</div></div>
               : <table className="rpt">
