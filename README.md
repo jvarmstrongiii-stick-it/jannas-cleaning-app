@@ -23,6 +23,7 @@ schedule, clients, and cleaner notes.
 ├── supabase/cowork_20260930/         # 005-009: invoicing/ledger schema, Invoice Simple import, owner-login RLS (already live — record only)
 ├── supabase/010_invoice_app_support.sql      # jobs.price, invoice_items.job_id, invoice RPCs
 ├── supabase/010b_finish_in_sql_editor.sql    # the DELETE-containing part of 010, run via SQL Editor
+├── supabase/011_expenses.sql                 # expenses table + record_expense RPC (Books tab)
 ├── CLAUDE.md                         # commit/deploy rules for future sessions
 ├── vercel.json                       # serves jannas.html at the site root
 └── .vercelignore                     # keeps docs/SQL off the public site
@@ -98,7 +99,7 @@ app.
 
 ## Screens
 
-Dashboard, Jobs, Schedule, Clients, Notes, Invoices (owner, signed in), Team — plus global Book Job /
+Dashboard, Jobs, Schedule, Clients, Notes, Invoices + Books (owner, signed in), Team — plus global Book Job /
 Edit Job / Add Note / Add Client / Edit Client / Add Cleaner / Edit
 Cleaner modals, all inlined directly in the render tree (not inner
 component functions, to avoid

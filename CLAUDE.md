@@ -136,6 +136,21 @@ constants (values in [brackets] render red on screen). Print/PDF uses
 `window.print()` + an `@media print` block that shows only `.invoice-doc`.
 Email = `mailto:` (user attaches the PDF). No online payments.
 
+## Books tab (owner-only, signed in)
+P&L (period presets + Accrual/Cash toggle, month-by-month breakdown), NJ
+sales tax by quarter, and expenses — all computed client-side from
+`ledger_entries` + `accounts` + `invoices` + `payments` (loaded via
+`fetchAll()`, which pages past PostgREST's 1000-row cap — use it for any
+table that grows). Accrual revenue = account 4000 ledger rows by entry_date;
+cash revenue = each payment × (invoice subtotal ÷ total), i.e. pre-tax share.
+Expenses: `expenses` table (migration 011) + `record_expense()` RPC posting
+Dr expense account / Cr 1000 Bank. Category "NJ sales tax payment" posts
+Dr 2100 instead (reduces tax owed, NOT a P&L expense). Deleting an expense
+is a plain client delete — `ledger_entries.expense_id` is ON DELETE CASCADE.
+"Bank" only reflects activity recorded in the app (no opening balance).
+Print/PDF prints the `.print-area` wrapper (same @media print trick as
+invoices).
+
 ## Roles: owner vs cleaner
 `cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every
 new row, including self-adds via the picker — nobody can grant themselves

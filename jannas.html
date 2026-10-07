@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 28;
+const APP_REV = 29;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -408,12 +408,22 @@ const styles = `
   .line-grid { display: grid; grid-template-columns: 1fr 64px 92px 52px 28px; gap: 6px; align-items: center; margin-bottom: 6px; }
   .line-grid.head { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--slate-mid); }
   .job-pick { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; cursor: pointer; }
+  .books-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+  .books-bar .form-select { width: auto; }
+  .rpt { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .rpt th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--slate-mid); padding: 8px 18px; border-bottom: 1px solid #eef2f5; }
+  .rpt td { padding: 9px 18px; border-bottom: 1px solid #f4f7f9; }
+  .rpt .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rpt .sub td { color: var(--slate-mid); padding-left: 34px; }
+  .rpt .total td { font-weight: 700; border-top: 2px solid var(--slate); }
+  .rpt .neg { color: var(--coral); }
   .signin-msg { font-size: 12px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--ocean-pale); color: var(--slate); }
   @media print {
     body { background: #fff !important; }
     body * { visibility: hidden !important; }
-    .invoice-doc, .invoice-doc * { visibility: visible !important; }
-    .invoice-doc { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+    .invoice-doc, .invoice-doc *, .print-area, .print-area * { visibility: visible !important; }
+    .invoice-doc, .print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+    .print-area .card { box-shadow: none !important; border: none !important; }
     .modal-overlay { position: absolute !important; background: none !important; }
     .modal { max-height: none !important; overflow: visible !important; box-shadow: none !important; }
     .no-print { display: none !important; }
@@ -505,6 +515,48 @@ function lastPriceFor(jobs, clientId, address, excludeJobId) {
   const hit = same || priced[0];
   return hit ? Number(hit.price) : null;
 }
+// ── BOOKS (reports) ─────────────────────────────────────────────
+const BOOKS_PERIODS = [
+  { id:"this_month", label:"This month" }, { id:"last_month", label:"Last month" },
+  { id:"this_quarter", label:"This quarter" }, { id:"last_quarter", label:"Last quarter" },
+  { id:"this_year", label:"This year" }, { id:"last_year", label:"Last year" },
+];
+const EXPENSE_CATEGORIES = [
+  { code:"5000", label:"Supplies" }, { code:"5100", label:"Labor / Subcontractors" },
+  { code:"5200", label:"Vehicle & Fuel" }, { code:"5900", label:"Other Expenses" },
+  { code:"2100", label:"NJ sales tax payment" },
+];
+// Built from numeric Date(y, m, d) like buildCalendarCells -- no string parsing.
+function periodRange(id, todayStr) {
+  const y = Number(todayStr.slice(0,4)), m = Number(todayStr.slice(5,7)) - 1;
+  const last = (yy, mm) => new Date(yy, mm + 1, 0).getDate();
+  const span = (y1, m1, y2, m2) => [toDateStr(y1, m1, 1), toDateStr(y2, m2, last(y2, m2))];
+  const q = Math.floor(m / 3);
+  switch (id) {
+    case "last_month":   { const d = new Date(y, m - 1, 1); return span(d.getFullYear(), d.getMonth(), d.getFullYear(), d.getMonth()); }
+    case "this_quarter": return span(y, q*3, y, q*3 + 2);
+    case "last_quarter": { const d = new Date(y, q*3 - 3, 1); return span(d.getFullYear(), d.getMonth(), d.getFullYear(), d.getMonth() + 2); }
+    case "this_year":    return span(y, 0, y, 11);
+    case "last_year":    return span(y - 1, 0, y - 1, 11);
+    default:             return span(y, m, y, m);
+  }
+}
+// PostgREST caps responses (1000 rows by default); page through so totals
+// never silently truncate as the ledger grows. `make` must build a fresh,
+// ordered query each call.
+async function fetchAll(make) {
+  let all = [], from = 0;
+  for (;;) {
+    const { data, error } = await make().range(from, from + 999);
+    if (error) return { data: null, error };
+    all = all.concat(data || []);
+    if (!data || data.length < 1000) return { data: all, error: null };
+    from += 1000;
+  }
+}
+function monthKey(d) { return (d || "").slice(0,7); }
+function monthLabel(k) { return new Date(Number(k.slice(0,4)), Number(k.slice(5,7)) - 1, 1).toLocaleDateString("en-US", { month:"short", year:"numeric" }); }
+
 function lineTotals(lines, taxRate) {
   const r2 = n => Math.round(n * 100) / 100;
   let subtotal = 0, taxable = 0;
@@ -873,6 +925,12 @@ function JannasDashboard() {
   const [viewInvoiceId, setViewInvoiceId] = useState(null);
   const [invoiceForm, setInvoiceForm] = useState(null);
   const [paymentForm, setPaymentForm] = useState(null);
+  const [ledger, setLedger] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [expenses, setExpenses] = useState([]);
+  const [booksPeriod, setBooksPeriod] = useState("this_year");
+  const [booksBasis, setBooksBasis] = useState("accrual"); // "accrual" | "cash"
+  const [expenseForm, setExpenseForm] = useState(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true); });
@@ -922,19 +980,23 @@ function JannasDashboard() {
       // fetch them with a signed-in session.
       const { data: { session: s } } = await supabase.auth.getSession();
       if (s) {
-        const [invRes, itemsRes, payRes] = await Promise.all([
-          supabase.from('invoices').select('*').order('invoice_date', { ascending:false }).order('invoice_number', { ascending:false }),
-          supabase.from('invoice_items').select('*').order('sort_order'),
-          supabase.from('payments').select('*').order('paid_date'),
+        const [invRes, itemsRes, payRes, ledRes, acctRes, expRes] = await Promise.all([
+          fetchAll(() => supabase.from('invoices').select('*').order('invoice_date', { ascending:false }).order('invoice_number', { ascending:false })),
+          fetchAll(() => supabase.from('invoice_items').select('*').order('invoice_id').order('sort_order')),
+          fetchAll(() => supabase.from('payments').select('*').order('paid_date').order('id')),
+          fetchAll(() => supabase.from('ledger_entries').select('*').order('entry_date').order('id')),
+          supabase.from('accounts').select('*').order('code'),
+          fetchAll(() => supabase.from('expenses').select('*').order('expense_date', { ascending:false }).order('id')),
         ]);
-        if (invRes.error) throw invRes.error;
-        if (itemsRes.error) throw itemsRes.error;
-        if (payRes.error) throw payRes.error;
+        for (const r of [invRes, itemsRes, payRes, ledRes, acctRes, expRes]) if (r.error) throw r.error;
         setInvoices(invRes.data || []);
         setInvoiceItems(itemsRes.data || []);
         setPayments(payRes.data || []);
+        setLedger(ledRes.data || []);
+        setAccounts(acctRes.data || []);
+        setExpenses(expRes.data || []);
       } else {
-        setInvoices([]); setInvoiceItems([]); setPayments([]);
+        setInvoices([]); setInvoiceItems([]); setPayments([]); setLedger([]); setAccounts([]); setExpenses([]);
       }
     } catch (err) {
       showNotif("⚠️ Failed to load data: " + err.message);
@@ -994,6 +1056,7 @@ function JannasDashboard() {
     { id:"clients",   icon:"👥", label:"Clients" },
     { id:"notes",     icon:"📝", label:"Notes" },
     ...(isOwner ? [{ id:"invoices", icon:"🧾", label:"Invoices" }] : []),
+    ...(isOwner ? [{ id:"books", icon:"📊", label:"Books" }] : []),
     ...(isOwner ? [{ id:"team", icon:"🧺", label:"Team" }] : []),
   ];
 
@@ -1402,7 +1465,7 @@ function JannasDashboard() {
     await supabase.auth.signOut();
     setShowUserMenu(false);
     setViewInvoiceId(null); setInvoiceForm(null); setPaymentForm(null);
-    if (activeNav === "invoices") setActiveNav("dashboard");
+    if (activeNav === "invoices" || activeNav === "books") setActiveNav("dashboard");
     showNotif("Signed out of owner account");
   }
 
@@ -1501,6 +1564,36 @@ function JannasDashboard() {
       if (error) throw error;
       await loadAll({ silent:true });
       showNotif("🗑 Payment removed");
+    } catch (err) { showNotif("⚠️ " + err.message); }
+  }
+
+  // ── BOOKS: expenses ─────────────────────────────────────────────
+  async function handleRecordExpense() {
+    if (!requireOwner()) return;
+    const f = expenseForm;
+    const amt = Number(f.amount);
+    if (!(amt > 0)) { showNotif("⚠️ Enter an amount"); return; }
+    if (!f.date) { showNotif("⚠️ Pick a date"); return; }
+    try {
+      const { error } = await supabase.rpc('record_expense', {
+        p_date: f.date, p_amount: amt, p_account_code: f.code, p_vendor: f.vendor, p_note: f.note,
+      });
+      if (error) throw error;
+      setExpenseForm(null);
+      await loadAll({ silent:true });
+      showNotif("✓ Expense recorded");
+    } catch (err) { showNotif("⚠️ " + err.message); }
+  }
+
+  async function handleDeleteExpense(x) {
+    if (!requireOwner()) return;
+    if (!window.confirm(`Remove the ${fmtMoney(x.amount)} expense from ${fmtDate(x.expense_date)}?`)) return;
+    try {
+      // ledger_entries.expense_id is ON DELETE CASCADE, so its two ledger rows go with it.
+      const { error } = await supabase.from('expenses').delete().eq('id', x.id);
+      if (error) throw error;
+      await loadAll({ silent:true });
+      showNotif("🗑 Expense removed");
     } catch (err) { showNotif("⚠️ " + err.message); }
   }
 
@@ -1912,6 +2005,194 @@ function JannasDashboard() {
     );
   };
 
+  const renderBooks = () => {
+    if (!session) {
+      return (
+        <div className="card">
+          <div className="empty">
+            <div className="empty-icon">🔒</div>
+            <div className="empty-text" style={{marginBottom:14}}>The books are protected. Sign in with the owner account to see them.</div>
+            <button className="btn btn-primary" onClick={openSignIn}>Sign in as owner</button>
+          </div>
+        </div>
+      );
+    }
+    const [from, to] = periodRange(booksPeriod, todayStr);
+    const inRange = d => d >= from && d <= to;
+    const acctById = Object.fromEntries(accounts.map(a => [a.id, a]));
+    const invById = Object.fromEntries(invoices.map(i => [i.id, i]));
+    const cash = booksBasis === "cash";
+    const r2 = n => Math.round(n * 100) / 100;
+
+    // months in the period, for the breakdown table
+    const months = [];
+    for (let d = new Date(Number(from.slice(0,4)), Number(from.slice(5,7)) - 1, 1); toDateStr(d.getFullYear(), d.getMonth(), 1) <= to; d = new Date(d.getFullYear(), d.getMonth() + 1, 1))
+      months.push(toDateStr(d.getFullYear(), d.getMonth(), 1).slice(0,7));
+    const byMonth = Object.fromEntries(months.map(m => [m, { rev:0, exp:0 }]));
+
+    // Revenue: accrual = 4000 ledger (when invoiced); cash = pre-tax share of payments (when paid)
+    let revenue = 0;
+    if (cash) {
+      payments.filter(p => inRange(p.paid_date)).forEach(p => {
+        const inv = invById[p.invoice_id];
+        const share = inv && Number(inv.total) > 0 ? Number(inv.subtotal) / Number(inv.total) : 0;
+        const amt = Number(p.amount) * share;
+        revenue += amt; if (byMonth[monthKey(p.paid_date)]) byMonth[monthKey(p.paid_date)].rev += amt;
+      });
+    } else {
+      ledger.filter(l => acctById[l.account_id]?.code === "4000" && inRange(l.entry_date)).forEach(l => {
+        const amt = Number(l.credit) - Number(l.debit);
+        revenue += amt; if (byMonth[monthKey(l.entry_date)]) byMonth[monthKey(l.entry_date)].rev += amt;
+      });
+    }
+    // Expenses (paid from bank immediately, so the same on both bases)
+    const expByAcct = {};
+    ledger.filter(l => acctById[l.account_id]?.type === "expense" && inRange(l.entry_date)).forEach(l => {
+      const amt = Number(l.debit) - Number(l.credit);
+      const a = acctById[l.account_id];
+      expByAcct[a.code] = { name: a.name, amt: (expByAcct[a.code]?.amt || 0) + amt };
+      if (byMonth[monthKey(l.entry_date)]) byMonth[monthKey(l.entry_date)].exp += amt;
+    });
+    const totalExp = Object.values(expByAcct).reduce((t, x) => t + x.amt, 0);
+    const net = revenue - totalExp;
+
+    // Sales tax by quarter for the period's year
+    const year = from.slice(0,4);
+    const quarters = [0,1,2,3].map(q => {
+      const [qs, qe] = [toDateStr(Number(year), q*3, 1), toDateStr(Number(year), q*3 + 2, new Date(Number(year), q*3 + 3, 0).getDate())];
+      const inQ = d => d >= qs && d <= qe;
+      const qInv = invoices.filter(i => inQ(i.invoice_date));
+      const collected = payments.filter(p => inQ(p.paid_date)).reduce((t, p) => {
+        const inv = invById[p.invoice_id];
+        return t + (inv && Number(inv.total) > 0 ? Number(p.amount) * Number(inv.tax_amount) / Number(inv.total) : 0);
+      }, 0);
+      const paidNJ = ledger.filter(l => acctById[l.account_id]?.code === "2100" && l.source === "expense" && inQ(l.entry_date))
+        .reduce((t, l) => t + Number(l.debit) - Number(l.credit), 0);
+      return { label:`Q${q+1} ${year}`, taxable: qInv.reduce((t,i)=>t+Number(i.taxable_amount),0),
+        charged: qInv.reduce((t,i)=>t+Number(i.tax_amount),0), collected, paidNJ };
+    });
+    const taxOwed = ledger.filter(l => acctById[l.account_id]?.code === "2100").reduce((t, l) => t + Number(l.credit) - Number(l.debit), 0);
+    const periodExpenses = expenses.filter(x => inRange(x.expense_date));
+    const periodLabel = BOOKS_PERIODS.find(p => p.id === booksPeriod)?.label;
+
+    return (
+      <>
+        <div className="books-bar no-print">
+          <select className="form-select" value={booksPeriod} onChange={e=>setBooksPeriod(e.target.value)}>
+            {BOOKS_PERIODS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+          <div className="filter-tabs" style={{border:"none",padding:0}}>
+            {["accrual","cash"].map(b => (
+              <button key={b} className={`filter-tab ${booksBasis===b?"active":""}`} onClick={()=>setBooksBasis(b)}>
+                {b === "accrual" ? "Accrual (when invoiced)" : "Cash (when paid)"}
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-ghost" style={{marginLeft:"auto"}} onClick={()=>window.print()}>🖨 Print / PDF</button>
+        </div>
+
+        <div className="print-area">
+          <div className="stats-grid">
+            {[
+              { label:"Revenue", value: fmtMoney(revenue), sub: cash ? "Collected (excl. tax)" : "Invoiced (excl. tax)", accent:"#E8F5EE" },
+              { label:"Expenses", value: fmtMoney(totalExp), sub:`${periodExpenses.filter(x => acctById[x.account_id]?.type === "expense").length} entries`, accent:"#FEF0EC" },
+              { label:"Net Profit", value: fmtMoney(net), sub: periodLabel, accent:"#E8F4F8" },
+              { label:"Sales Tax Owed", value: fmtMoney(taxOwed), sub:"Collected, not yet paid to NJ", accent:"#FFF8EC" },
+            ].map((st,i) => (
+              <div key={i} className="stat-card" style={{"--accent":st.accent}}>
+                <div className="stat-label">{st.label}</div>
+                <div className="stat-value money">{st.value}</div>
+                <div className="stat-sub">{st.sub}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <div className="card-title">Profit &amp; Loss</div>
+              <span style={{fontSize:12,color:"var(--slate-mid)"}}>{BUSINESS.name} · {fmtDateY(from)} – {fmtDateY(to)} · {cash ? "cash" : "accrual"} basis</span>
+            </div>
+            <table className="rpt">
+              <tbody>
+                <tr><td><b>Income</b></td><td></td></tr>
+                <tr className="sub"><td>Cleaning Service Revenue</td><td className="num">{fmtMoney(revenue)}</td></tr>
+                <tr><td><b>Expenses</b></td><td></td></tr>
+                {Object.keys(expByAcct).length === 0
+                  ? <tr className="sub"><td>No expenses recorded</td><td className="num">{fmtMoney(0)}</td></tr>
+                  : Object.entries(expByAcct).sort().map(([code, x]) => (
+                      <tr key={code} className="sub"><td>{x.name}</td><td className="num">{fmtMoney(x.amt)}</td></tr>
+                    ))}
+                <tr className="sub"><td><b>Total Expenses</b></td><td className="num">{fmtMoney(totalExp)}</td></tr>
+                <tr className="total"><td>Net Profit</td><td className={`num ${net < 0 ? "neg" : ""}`}>{fmtMoney(net)}</td></tr>
+              </tbody>
+            </table>
+            {months.length > 1 && (
+              <table className="rpt" style={{marginTop:8}}>
+                <thead><tr><th>Month</th><th className="num">Revenue</th><th className="num">Expenses</th><th className="num">Net</th></tr></thead>
+                <tbody>
+                  {months.map(m => (
+                    <tr key={m}><td>{monthLabel(m)}</td>
+                      <td className="num">{fmtMoney(r2(byMonth[m].rev))}</td>
+                      <td className="num">{fmtMoney(r2(byMonth[m].exp))}</td>
+                      <td className={`num ${byMonth[m].rev - byMonth[m].exp < 0 ? "neg" : ""}`}>{fmtMoney(r2(byMonth[m].rev - byMonth[m].exp))}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <div className="card-title">NJ Sales Tax — {year}</div>
+              <span style={{fontSize:12,color:"var(--slate-mid)"}}>Owed now: <b>{fmtMoney(taxOwed)}</b></span>
+            </div>
+            <table className="rpt">
+              <thead><tr><th>Quarter</th><th className="num">Taxable sales</th><th className="num">Tax charged</th><th className="num">Tax collected</th><th className="num">Paid to NJ</th></tr></thead>
+              <tbody>
+                {quarters.map(q => (
+                  <tr key={q.label}><td>{q.label}</td>
+                    <td className="num">{fmtMoney(q.taxable)}</td><td className="num">{fmtMoney(q.charged)}</td>
+                    <td className="num">{fmtMoney(r2(q.collected))}</td><td className="num">{fmtMoney(q.paidNJ)}</td></tr>
+                ))}
+                <tr className="total"><td>Total</td>
+                  <td className="num">{fmtMoney(quarters.reduce((t,q)=>t+q.taxable,0))}</td>
+                  <td className="num">{fmtMoney(quarters.reduce((t,q)=>t+q.charged,0))}</td>
+                  <td className="num">{fmtMoney(r2(quarters.reduce((t,q)=>t+q.collected,0)))}</td>
+                  <td className="num">{fmtMoney(quarters.reduce((t,q)=>t+q.paidNJ,0))}</td></tr>
+              </tbody>
+            </table>
+            <div style={{fontSize:11,color:"var(--slate-mid)",padding:"10px 18px"}}>
+              "Tax charged" counts invoices by invoice date; "Tax collected" counts the tax share of payments received. Record payments to NJ with + Expense → "NJ sales tax payment".
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <div className="card-title">Expenses — {periodLabel}</div>
+              <span style={{fontSize:12,color:"var(--slate-mid)"}}>{periodExpenses.length} total</span>
+            </div>
+            {periodExpenses.length === 0
+              ? <div className="empty"><div className="empty-icon">🧾</div><div className="empty-text">No expenses in this period</div></div>
+              : <table className="rpt">
+                  <thead><tr><th>Date</th><th>Category</th><th>Vendor / note</th><th className="num">Amount</th><th className="no-print"></th></tr></thead>
+                  <tbody>
+                    {periodExpenses.map(x => (
+                      <tr key={x.id}>
+                        <td>{fmtDate(x.expense_date)}</td>
+                        <td>{EXPENSE_CATEGORIES.find(c => c.code === acctById[x.account_id]?.code)?.label || acctById[x.account_id]?.name}</td>
+                        <td>{[x.vendor, x.note].filter(Boolean).join(" — ")}</td>
+                        <td className="num">{fmtMoney(x.amount)}</td>
+                        <td className="no-print" style={{width:36}}><button className="btn-icon danger" title="Remove" onClick={()=>handleDeleteExpense(x)}>🗑</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>}
+          </div>
+        </div>
+      </>
+    );
+  };
+
   const bookJobButton = isOwner ? <button className="btn btn-primary" onClick={()=>setShowBookModal(true)}>+ Book Job</button> : null;
   const topbarActions = {
     dashboard: bookJobButton,
@@ -1921,9 +2202,10 @@ function JannasDashboard() {
     notes:     <button className="btn btn-primary" onClick={()=>setShowNoteModal(true)}>+ Add Note</button>,
     team:      isOwner ? <button className="btn btn-primary" onClick={()=>setShowCleanerModal(true)}>+ Add Cleaner</button> : null,
     invoices:  isOwner && session ? <button className="btn btn-primary" onClick={()=>openNewInvoice()}>+ New Invoice</button> : null,
+    books:     isOwner && session ? <button className="btn btn-primary" onClick={()=>setExpenseForm({ date: todayStr, amount:"", code:"5000", vendor:"", note:"" })}>+ Expense</button> : null,
   };
 
-  const pages = { dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients, notes: renderNotes, team: renderTeam, invoices: renderInvoices };
+  const pages = { dashboard: renderDashboard, jobs: renderJobs, schedule: renderSchedule, clients: renderClients, notes: renderNotes, team: renderTeam, invoices: renderInvoices, books: renderBooks };
 
   return (
     <>
@@ -2219,6 +2501,52 @@ function JannasDashboard() {
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={()=>setPaymentForm(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={handleRecordPayment}>Record Payment</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EXPENSE MODAL */}
+      {expenseForm && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setExpenseForm(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Add Expense</div>
+              <button className="modal-close" onClick={()=>setExpenseForm(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-row">
+                <div className="form-group">
+                  <label className="form-label">Date</label>
+                  <input className="form-input" type="date" value={expenseForm.date} onChange={e=>setExpenseForm(p=>({...p,date:e.target.value}))} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Amount</label>
+                  <input className="form-input" type="number" min="0" step="0.01" inputMode="decimal" value={expenseForm.amount}
+                    onChange={e=>setExpenseForm(p=>({...p,amount:e.target.value}))} autoFocus />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Category</label>
+                <select className="form-select" value={expenseForm.code} onChange={e=>setExpenseForm(p=>({...p,code:e.target.value}))}>
+                  {EXPENSE_CATEGORIES.map(c=><option key={c.code} value={c.code}>{c.label}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">{expenseForm.code === "2100" ? "Paid to" : "Vendor"}</label>
+                <input className="form-input" value={expenseForm.vendor} onChange={e=>setExpenseForm(p=>({...p,vendor:e.target.value}))}
+                  placeholder={expenseForm.code === "2100" ? "NJ Division of Taxation" : "e.g. Costco, Shell"} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Note</label>
+                <input className="form-input" value={expenseForm.note} onChange={e=>setExpenseForm(p=>({...p,note:e.target.value}))}
+                  placeholder={expenseForm.code === "2100" ? "e.g. Q2 2026 return" : "Optional"} />
+              </div>
+              {expenseForm.code === "2100" && <div className="signin-msg">This reduces the sales tax owed balance — it's not counted as a business expense on the P&amp;L.</div>}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={()=>setExpenseForm(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleRecordExpense}>Save</button>
             </div>
           </div>
         </div>
