@@ -89,23 +89,52 @@ invoice, so de-dupe clients by name.
 
 ## Live DB can be ahead of this repo — check before building
 Cowork sessions have changed the live Supabase DB directly without leaving
-files here. Before any schema work, list the live migrations
-(`supabase_migrations.schema_migrations`) and compare. As of 2026-10-07 the
-live DB has (from a Sep 30 Cowork session, not yet saved in this repo):
-`invoices` / `invoice_items` / `payments` / `accounts` / `ledger_entries`
-(83 Invoice Simple invoices + 76 payments imported, double-entry ledger),
-`clients.mobile` / `client_type` / `source_ref`, `cleaners.auth_user_id`,
-`is_owner()` / `is_staff()`, and a trigger linking a new auth user to the
-cleaner with the same email. Financial tables are owner-only for the
-`authenticated` role (NO anon access) — the app needs a real Supabase Auth
-login for Janna to see them. `supabase/010_invoice_app_support.sql` is the
-in-progress app-support migration (jobs.price, invoice_items.job_id, and
-RPCs save_invoice / record_payment / delete_payment / delete_invoice);
-partially applied — save_invoice, delete_payment and delete_invoice still
-pending because Supabase MCP asks the user to confirm any SQL containing
-DELETE (times out if nobody approves within 60s). Those parts are in
-`supabase/010b_finish_in_sql_editor.sql` for the user to paste into the
-Supabase SQL Editor — prefer that route for any DELETE-containing SQL.
+files here (that happened Sep 30 2026 — copies now in
+`supabase/cowork_20260930/005-009`, do NOT re-run them). Before any schema
+work, compare `supabase_migrations.schema_migrations` on the live project
+with the files in `supabase/`. Gotcha: the Supabase MCP asks the user to
+confirm any SQL containing DELETE (even inside a function body) and times
+out after 60s if nobody approves — put such SQL in a file and have the user
+paste it into the SQL Editor (that's what `010b_finish_in_sql_editor.sql` was).
+
+## Invoicing (owner-only, real login)
+Tables (from the Cowork schema): `invoices` (invoice_number, invoice_date,
+due_date, status sent/partial/paid/void/draft, subtotal, taxable_amount,
+tax_rate as a FRACTION e.g. 0.06625, tax_amount, total, amount_paid,
+`balance_due` GENERATED, source `invoice_simple_import` | `app`),
+`invoice_items` (unit_price, `amount` GENERATED, sort_order, job_id),
+`payments` (paid_date, method, reference), `accounts` + `ledger_entries`
+(double-entry: invoice = Dr 1100 A/R / Cr 4000 Revenue / Cr 2100 Sales Tax;
+payment = Dr 1000 Bank / Cr 1100 A/R). 83 Invoice Simple invoices + 76
+payments were imported as totals only (no line items) — the app shows them
+read-only (print/pay/delete, no Edit).
+
+RLS: these tables have NO anon policy; only `authenticated` + `is_owner()`
+(cleaners row with role owner whose `auth_user_id` = auth.uid()). So Janna
+signs in with Supabase Auth (email+password, avatar menu → "Sign in as
+owner"); a trigger links a new auth user to the cleaners row with the same
+email (jannalflexer@gmail.com). IMPORTANT: once signed in, requests run as
+`authenticated`, so the anon policies on clients/jobs/etc. no longer apply —
+the owner policies cover them. A signed-in non-owner would see an EMPTY app,
+which is why `handleSignIn` checks `rpc('is_owner')` and signs back out if
+false. Switch user / Lock device also sign out.
+
+All invoice writes go through RPCs (migration 010/010b, SECURITY INVOKER +
+is_owner() check, one transaction each): `save_invoice(p jsonb)` (recomputes
+totals server-side, replaces items, rewrites the invoice's ledger rows,
+copies a qty-1 job line's rate onto `jobs.price`), `record_payment`,
+`delete_payment`, `delete_invoice`. Never write these tables directly from
+the client or the ledger will drift.
+
+`jobs.price` (optional, anon-visible like the rest of jobs) + `lastPriceFor()`
+= repeat-cleaning price memory: Book Job pre-fills the client's last priced
+job (same address first) until the user types a price (`priceTouched`).
+A completed job is "un-invoiced" when no `invoice_items.job_id` points at it.
+Business name/address/phone/email, default terms and footer are
+PLACEHOLDERS in the `BUSINESS` / `DEFAULT_TERMS` / `INVOICE_FOOTER`
+constants (values in [brackets] render red on screen). Print/PDF uses
+`window.print()` + an `@media print` block that shows only `.invoice-doc`.
+Email = `mailto:` (user attaches the PDF). No online payments.
 
 ## Roles: owner vs cleaner
 `cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every

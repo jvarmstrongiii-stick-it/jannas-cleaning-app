@@ -20,6 +20,9 @@ schedule, clients, and cleaner notes.
 ├── supabase/002_add_cleaners.sql     # incremental migration adding `cleaners` to an already-live project
 ├── supabase/003_add_cleaner_role.sql # incremental migration adding `cleaners.role` (owner vs cleaner)
 ├── supabase/004_add_properties.sql   # incremental migration adding `properties` (saved job-site addresses)
+├── supabase/cowork_20260930/         # 005-009: invoicing/ledger schema, Invoice Simple import, owner-login RLS (already live — record only)
+├── supabase/010_invoice_app_support.sql      # jobs.price, invoice_items.job_id, invoice RPCs
+├── supabase/010b_finish_in_sql_editor.sql    # the DELETE-containing part of 010, run via SQL Editor
 ├── CLAUDE.md                         # commit/deploy rules for future sessions
 ├── vercel.json                       # serves jannas.html at the site root
 └── .vercelignore                     # keeps docs/SQL off the public site
@@ -72,6 +75,12 @@ URL and anon/publishable key).
   autofills it, so editing/deleting a property never retroactively
   changes an already-booked job.
 
+- **invoices / invoice_items / payments / accounts / ledger_entries** —
+  invoicing + double-entry bookkeeping, owner-only (real Supabase Auth
+  login). See CLAUDE.md → Invoicing.
+- **jobs.price** — optional; remembered per client/address for repeat
+  cleanings.
+
 Badge/dot colors are derived client-side from job `status`, not stored.
 
 ## Roles
@@ -89,7 +98,7 @@ app.
 
 ## Screens
 
-Dashboard, Jobs, Schedule, Clients, Notes, Team — plus global Book Job /
+Dashboard, Jobs, Schedule, Clients, Notes, Invoices (owner, signed in), Team — plus global Book Job /
 Edit Job / Add Note / Add Client / Edit Client / Add Cleaner / Edit
 Cleaner modals, all inlined directly in the render tree (not inner
 component functions, to avoid
@@ -114,6 +123,6 @@ re-prompt the passphrase; "Lock device" in the avatar menu does.
 
 ## Deferred (not built yet)
 
-Client-facing login/portal, real per-user auth/permissions, push
-notifications, auto-generated recurring jobs, invoicing/payments,
-multi-tenant support.
+Client-facing login/portal, real per-user auth for cleaners, push
+notifications, auto-generated recurring jobs, online card payments,
+sending invoices by email from the app, multi-tenant support.
