@@ -87,6 +87,24 @@ types the address into the client name (e.g. "Lisa Schatz 1705 Wesley"),
 so split that into `address` and seed a `properties` row. One row per
 invoice, so de-dupe clients by name.
 
+## Live DB can be ahead of this repo — check before building
+Cowork sessions have changed the live Supabase DB directly without leaving
+files here. Before any schema work, list the live migrations
+(`supabase_migrations.schema_migrations`) and compare. As of 2026-10-07 the
+live DB has (from a Sep 30 Cowork session, not yet saved in this repo):
+`invoices` / `invoice_items` / `payments` / `accounts` / `ledger_entries`
+(83 Invoice Simple invoices + 76 payments imported, double-entry ledger),
+`clients.mobile` / `client_type` / `source_ref`, `cleaners.auth_user_id`,
+`is_owner()` / `is_staff()`, and a trigger linking a new auth user to the
+cleaner with the same email. Financial tables are owner-only for the
+`authenticated` role (NO anon access) — the app needs a real Supabase Auth
+login for Janna to see them. `supabase/010_invoice_app_support.sql` is the
+in-progress app-support migration (jobs.price, invoice_items.job_id, and
+RPCs save_invoice / record_payment / delete_payment / delete_invoice);
+partially applied — save_invoice, delete_payment and delete_invoice still
+pending because Supabase MCP asks the user to confirm any SQL containing
+DELETE (times out if nobody approves within 60s).
+
 ## Roles: owner vs cleaner
 `cleaners.role` is `'owner'` or `'cleaner'` (default `'cleaner'` on every
 new row, including self-adds via the picker — nobody can grant themselves
