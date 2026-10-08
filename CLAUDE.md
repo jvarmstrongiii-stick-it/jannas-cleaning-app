@@ -153,6 +153,8 @@ posts Dr 2100 / Cr 1000 and stores `expenses.method` (Check|EFT),
 `reference` (check # / EFT confirmation #) and `tax_period` ("Q3 2026").
 "Paid to NJ" per quarter uses tax_period (a Q3 return is paid in Oct), not
 the payment date. Tax payments are excluded from the Expenses list/P&L.
+The Pay Sales Tax modal opens via `openTaxPay()` from BOTH the Books top bar
+(next to + Expense, visible on Summary and General Ledger) and the tax card.
 General Ledger view (Books → 📒 General Ledger): per account, opening
 balance (entries before the period) → entries → closing, signed by the
 account's normal side (asset/expense = debit); trial-balance check shows
