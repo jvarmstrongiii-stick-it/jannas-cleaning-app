@@ -264,6 +264,12 @@ security posture. Switching users doesn't re-prompt the passphrase by
 design (shared-tablet model); "Lock device" in the avatar menu clears both
 localStorage keys and re-shows the passphrase gate.
 
+## portfolio/ (not part of the app)
+Upwork portfolio screenshots (r39) taken from a fake-data preview
+("Shoreline Cleaning Co.", mock supabase) — never real client data. Kept off
+the live site via `.vercelignore`. Case study doc:
+https://claude.ai/code/artifact/9cc77c0c-3a47-4abd-9dc5-4e3dede4e319
+
 ## Self-Update Protocol
 Before every commit, ask: would a new session be confused by something
 introduced here? If yes, update this file in the same commit.
