@@ -154,7 +154,11 @@ Janna schedules in a dedicated Google work calendar; the app is read-only
 on it. No server: the signed-in owner's browser gets a 1-hour
 calendar.readonly token via Google Identity Services (`getGoogleToken`,
 cached in sessionStorage) using `GOOGLE_CLIENT_ID` (public OAuth web client
-— EMPTY until the Google Cloud setup is done; UI then shows a setup note).
+in Google Cloud project `jannas-cleaning-app`, owned by the user's Google
+account; consent screen in Testing mode with jannalflexer@gmail.com as test
+user; authorized JS origin https://jannas-cleaning-app.vercel.app only — so
+the Connect flow can't be tested from a preview URL or locally). The client
+secret is unused by design (token flow) — never commit it.
 So sync runs on "↻ Sync now" or auto on load if this tab still has a valid
 token — never in the background. `syncCalendar()` pulls -60/+120 days with
 singleEvents+showDeleted, upserts `calendar_events` (id = Google instance

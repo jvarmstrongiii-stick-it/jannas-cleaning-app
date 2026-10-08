@@ -17,7 +17,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 37;
+const APP_REV = 38;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -545,7 +545,7 @@ function lastPriceFor(jobs, clientId, address, excludeJobId) {
 // open (auto on load if a token from this tab is still valid, else "Sync now").
 // GOOGLE_CLIENT_ID is public by design (OAuth web client, locked to the
 // app's origin in Google Cloud). Empty = calendar features show setup help.
-const GOOGLE_CLIENT_ID = "";
+const GOOGLE_CLIENT_ID = "480673944716-d2at15q7ijs9k0hbl6rdmdb0gfn12gpg.apps.googleusercontent.com";
 const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 const GCAL_TOKEN_KEY = "jannas_gcal_token_v1"; // sessionStorage {token, exp}
 const GCAL_DAYS_BACK = 60, GCAL_DAYS_AHEAD = 120;
