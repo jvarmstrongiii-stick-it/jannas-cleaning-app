@@ -153,7 +153,11 @@ the payment date. Tax payments are excluded from the Expenses list/P&L.
 General Ledger view (Books → 📒 General Ledger): per account, opening
 balance (entries before the period) → entries → closing, signed by the
 account's normal side (asset/expense = debit); trial-balance check shows
-period + all-time debits = credits; invoice/payment rows open the invoice. Deleting an expense
+period + all-time debits = credits; invoice/payment rows open the invoice.
+Each account card is collapsible (r32): `glOpen` state, collapsed by default on
+"All accounts", auto-open when one account is picked, header shows closing
+balance, Expand/Collapse all buttons. The table body is hidden with CSS
+(`.gl-closed`), NOT unmounted, so Print/PDF still shows every account. Deleting an expense
 is a plain client delete — `ledger_entries.expense_id` is ON DELETE CASCADE.
 "Bank" only reflects activity recorded in the app (no opening balance).
 Print/PDF prints the `.print-area` wrapper (same @media print trick as

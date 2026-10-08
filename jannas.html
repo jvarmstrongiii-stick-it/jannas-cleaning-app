@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 31;
+const APP_REV = 32;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -429,6 +429,11 @@ const styles = `
   .rpt .sub td { color: var(--slate-mid); padding-left: 34px; }
   .rpt .total td { font-weight: 700; border-top: 2px solid var(--slate); }
   .rpt .neg { color: var(--coral); }
+  .gl-head { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
+  .gl-head:hover { background: #f7fafb; }
+  .gl-chev { display: inline-block; width: 18px; color: var(--slate-mid); transition: transform .15s; }
+  .gl-chev.open { transform: rotate(90deg); }
+  .gl-closed { display: none; }
   .signin-msg { font-size: 12px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: var(--ocean-pale); color: var(--slate); }
   @media print {
     body { background: #fff !important; }
@@ -439,6 +444,8 @@ const styles = `
     .modal-overlay { position: absolute !important; background: none !important; }
     .modal { max-height: none !important; overflow: visible !important; box-shadow: none !important; }
     .no-print { display: none !important; }
+    .gl-closed { display: block !important; }
+    .gl-chev { display: none; }
     .inv-placeholder { color: inherit; }
     @page { margin: 14mm; }
   }
@@ -1076,6 +1083,7 @@ function JannasDashboard() {
   const [expenseForm, setExpenseForm] = useState(null);
   const [booksView, setBooksView] = useState("summary"); // "summary" | "ledger"
   const [glAccount, setGlAccount] = useState("all");
+  const [glOpen, setGlOpen] = useState({}); // account id -> true when expanded (default collapsed)
   const [taxPayForm, setTaxPayForm] = useState(null);
 
   useEffect(() => {
@@ -2207,15 +2215,33 @@ function JannasDashboard() {
             <span style={{color: balanced ? "#2E7A4F" : "var(--coral)", fontWeight:600}}>
               {balanced ? "✓ Books balance (debits = credits)" : "⚠️ Out of balance — tell Claude"}
             </span>
+            {sections.length > 1 && (
+              <span className="no-print" style={{marginLeft:"auto",display:"flex",gap:8}}>
+                <button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:12}}
+                  onClick={() => setGlOpen(Object.fromEntries(sections.map(sct => [sct.a.id, true])))}>Expand all</button>
+                <button className="btn btn-ghost" style={{padding:"4px 10px",fontSize:12}}
+                  onClick={() => setGlOpen(Object.fromEntries(sections.map(sct => [sct.a.id, false])))}>Collapse all</button>
+              </span>
+            )}
           </div>
         </div>
         {sections.length === 0 && <div className="card"><div className="empty"><div className="empty-icon">📒</div><div className="empty-text">No activity in this period</div></div></div>}
-        {sections.map(({ a, opening, lines, closing }) => (
+        {sections.map(({ a, opening, lines, closing }) => {
+          // Collapsed by default when viewing all accounts; a single picked account opens itself.
+          const isOpen = glOpen[a.id] ?? (glAccount !== "all");
+          return (
           <div className="card" key={a.id}>
-            <div className="card-header">
-              <div className="card-title" style={{fontSize:17}}>{a.code} · {a.name}</div>
-              <span style={{fontSize:12,color:"var(--slate-mid)"}}>{a.type} · {lines.length} entr{lines.length === 1 ? "y" : "ies"}</span>
+            <div className="card-header gl-head" role="button" aria-expanded={isOpen}
+              onClick={() => setGlOpen(o => ({ ...o, [a.id]: !isOpen }))}
+              style={isOpen ? undefined : {borderBottom:"none"}}>
+              <div className="card-title" style={{fontSize:17}}>
+                <span className={`gl-chev ${isOpen ? "open" : ""}`}>▸</span>{a.code} · {a.name}
+              </div>
+              <span style={{fontSize:12,color:"var(--slate-mid)",textAlign:"right"}}>
+                {a.type} · {lines.length} entr{lines.length === 1 ? "y" : "ies"} · <b>{fmtMoney(r2(closing))}</b>
+              </span>
             </div>
+            <div className={isOpen ? "" : "gl-closed"}>
             <table className="rpt">
               <thead><tr><th>Date</th><th>Description</th><th>Ref</th><th className="num">Debit</th><th className="num">Credit</th><th className="num">Balance</th></tr></thead>
               <tbody>
@@ -2233,8 +2259,10 @@ function JannasDashboard() {
                 <tr className="total"><td colSpan={5}>Closing balance</td><td className="num">{fmtMoney(r2(closing))}</td></tr>
               </tbody>
             </table>
+            </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     );
   };
