@@ -11,6 +11,9 @@
    snapshots, never share those. `vercel.json` rewrites `/` → `/jannas.html`
    (the file is NOT renamed to index.html) — that rewrite is what prevents
    the root-URL 404. `.vercelignore` keeps docs/SQL off the public site.
+   `vercel.json` also sends `Cache-Control: no-cache, must-revalidate` so
+   browsers revalidate on every load (r33 — before that, users kept seeing
+   an old APP_REV after deploys until a hard refresh).
    GitHub Pages / the `gh-pages` branch is retired as of r18; don't re-add
    a Pages workflow.
    Gotcha (hit at r18): Vercel's Production Branch is copied from the
