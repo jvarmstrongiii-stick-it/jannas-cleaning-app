@@ -139,6 +139,13 @@ constants (values in [brackets] render red on screen). Print/PDF uses
 `window.print()` + an `@media print` block that shows only `.invoice-doc`.
 Email = `mailto:` (user attaches the PDF). No online payments.
 
+## Dashboard: Unpaid Invoices card (owner)
+Signed-in owner sees outstanding total + the 5 oldest unpaid invoices
+(due date, else invoice date), each opening the invoice; "View all" jumps
+to Invoices with the Unpaid filter. Owner not signed in sees a sign-in
+prompt; cleaners see nothing. Sales tax payments are deliberately NOT a
+P&L expense (pass-through liability) — only NJ penalties/interest are.
+
 ## Books tab (owner-only, signed in)
 P&L (period presets + Accrual/Cash toggle, month-by-month breakdown), NJ
 sales tax by quarter, and expenses — all computed client-side from
