@@ -10,13 +10,14 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 36;
+const APP_REV = 37;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -537,6 +538,94 @@ function lastPriceFor(jobs, clientId, address, excludeJobId) {
   const hit = same || priced[0];
   return hit ? Number(hit.price) : null;
 }
+// ── GOOGLE CALENDAR ─────────────────────────────────────────────────
+// Browser-only sync: the signed-in owner gets a short-lived read-only Google
+// token (Google Identity Services) and the app copies her WORK calendar's
+// events into calendar_events + jobs. No server, so it syncs when the app is
+// open (auto on load if a token from this tab is still valid, else "Sync now").
+// GOOGLE_CLIENT_ID is public by design (OAuth web client, locked to the
+// app's origin in Google Cloud). Empty = calendar features show setup help.
+const GOOGLE_CLIENT_ID = "";
+const GCAL_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const GCAL_TOKEN_KEY = "jannas_gcal_token_v1"; // sessionStorage {token, exp}
+const GCAL_DAYS_BACK = 60, GCAL_DAYS_AHEAD = 120;
+
+function normKey(s) { return (s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+function guessServiceType(text) {
+  const t = (text || "").toLowerCase();
+  if (/move[- ]?out/.test(t)) return "Move-Out Clean";
+  if (/move[- ]?in/.test(t)) return "Move-In Clean";
+  if (/deep/.test(t)) return "Deep Clean";
+  if (/construction/.test(t)) return "Post-Construction";
+  if (/window/.test(t)) return "Window Cleaning";
+  return "Standard Clean";
+}
+function rruleToRecurrence(rules) {
+  const r = (rules || []).find(x => x.startsWith("RRULE:")) || "";
+  const freq = (/FREQ=(\w+)/.exec(r) || [])[1], interval = Number((/INTERVAL=(\d+)/.exec(r) || [])[1] || 1);
+  if (freq === "WEEKLY") return interval === 2 ? "Bi-weekly" : "Weekly";
+  if (freq === "MONTHLY") return "Monthly";
+  return "One-time";
+}
+// Google event -> plain fields (all-day events have start.date, timed have start.dateTime in her tz)
+function eventFields(ev) {
+  const allDay = !!ev.start?.date;
+  const sdt = ev.start?.dateTime || "", edt = ev.end?.dateTime || "";
+  return {
+    id: ev.id, summary: ev.summary || "(no title)", location: ev.location || null, description: ev.description || null,
+    start_date: allDay ? ev.start.date : (sdt ? sdt.slice(0, 10) : null),
+    start_time: allDay ? null : sdt.slice(11, 16), end_time: allDay ? null : (edt ? edt.slice(11, 16) : null),
+    all_day: allDay, status: ev.status || "confirmed", recurring_event_id: ev.recurringEventId || null,
+    html_link: ev.htmlLink || null, google_updated: ev.updated || null,
+  };
+}
+// Match an event to a client: remembered title -> client name in title ->
+// saved property / client address in location or title.
+function matchClient(f, clients, properties, aliases) {
+  const key = normKey(f.summary);
+  const alias = aliases.find(a => a.key === key);
+  if (alias) return alias.client_id;
+  const hay = normKey(f.summary + " " + (f.description || ""));
+  for (const c of clients) {
+    const full = normKey(c.name), short = normKey(c.name.split("(")[0]);
+    const first = short.split(" ")[0];
+    if ((full && hay.includes(full)) || (short.length >= 4 && hay.includes(short))) return c.id;
+    if (first.length >= 5 && clients.filter(x => normKey(x.name).startsWith(first)).length === 1 && hay.split(" ").includes(first)) return c.id;
+  }
+  const loc = normKey((f.location || "") + " " + f.summary);
+  const streetOf = a => normKey(a).split(" ").slice(0, 2).join(" "); // "1705 wesley"
+  for (const p of properties) { const st = streetOf(p.address); if (st.length >= 6 && loc.includes(st)) return p.client_id; }
+  for (const c of clients) { const st = streetOf(c.address); if (st.length >= 6 && loc.includes(st)) return c.id; }
+  return null;
+}
+function getGoogleToken(interactive) {
+  return new Promise((resolve, reject) => {
+    try {
+      const cached = JSON.parse(sessionStorage.getItem(GCAL_TOKEN_KEY) || "null");
+      if (cached && cached.exp > Date.now() + 60000) return resolve(cached.token);
+    } catch {}
+    if (!interactive) return reject(new Error("no-token"));
+    if (!GOOGLE_CLIENT_ID) return reject(new Error("Google Calendar isn't set up yet (missing Client ID)."));
+    if (!window.google?.accounts?.oauth2) return reject(new Error("Google sign-in didn't load — check your connection and try again."));
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID, scope: GCAL_SCOPE,
+      callback: r => {
+        if (r.error) return reject(new Error(r.error_description || r.error));
+        try { sessionStorage.setItem(GCAL_TOKEN_KEY, JSON.stringify({ token: r.access_token, exp: Date.now() + (Number(r.expires_in) || 3600) * 1000 })); } catch {}
+        resolve(r.access_token);
+      },
+      error_callback: e => reject(new Error(e?.type === "popup_closed" ? "Google sign-in was closed." : (e?.message || "Google sign-in failed."))),
+    });
+    client.requestAccessToken({ prompt: "" });
+  });
+}
+async function gapi(token, path) {
+  const res = await fetch("https://www.googleapis.com/calendar/v3/" + path, { headers: { Authorization: "Bearer " + token } });
+  if (res.status === 401) { try { sessionStorage.removeItem(GCAL_TOKEN_KEY); } catch {} throw new Error("Google session expired — tap Sync again."); }
+  if (!res.ok) throw new Error("Google Calendar error " + res.status);
+  return res.json();
+}
+
 // ── BOOKS (reports) ─────────────────────────────────────────────
 const BOOKS_PERIODS = [
   { id:"this_month", label:"This month" }, { id:"last_month", label:"Last month" },
@@ -1062,6 +1151,17 @@ function JannasDashboard() {
     try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; }
   });
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [calEvents, setCalEvents] = useState([]);
+  const [calAliases, setCalAliases] = useState([]);
+  const [gcalSetting, setGcalSetting] = useState(null); // {calendar_id, calendar_name, last_sync}
+  const [gcalBusy, setGcalBusy] = useState(false);
+  const [gcalPicker, setGcalPicker] = useState(null);   // list of calendars to choose from
+  const [assignDraft, setAssignDraft] = useState({});   // eventId -> {client_id, remember}
+  const [billSched, setBillSched] = useState(null);      // Bill from Schedule modal state
+  // syncCalendar is defined after the early returns, so effects reach it via a ref.
+  const gcalSyncRef = useRef(null);
+  const gcalAutoTried = useRef(false);
+  const gcalSyncing = useRef(false); // one sync at a time (connect + auto-sync raced and doubled jobs in testing)
 
   // Real Supabase Auth session — only Janna (owner) signs in, and only to
   // unlock invoicing. Everyone else keeps using the passphrase + name picker.
@@ -1152,8 +1252,18 @@ function JannasDashboard() {
         setLedger(ledRes.data || []);
         setAccounts(acctRes.data || []);
         setExpenses(expRes.data || []);
+        const [ceRes, alRes, setRes] = await Promise.all([
+          fetchAll(() => supabase.from('calendar_events').select('*').order('start_date').order('id')),
+          supabase.from('calendar_aliases').select('*'),
+          supabase.from('app_settings').select('*').eq('key', 'gcal'),
+        ]);
+        for (const r of [ceRes, alRes, setRes]) if (r.error) throw r.error;
+        setCalEvents(ceRes.data || []);
+        setCalAliases(alRes.data || []);
+        setGcalSetting(setRes.data?.[0]?.value || null);
       } else {
         setInvoices([]); setInvoiceItems([]); setPayments([]); setLedger([]); setAccounts([]); setExpenses([]);
+        setCalEvents([]); setCalAliases([]); setGcalSetting(null);
       }
     } catch (err) {
       showNotif("⚠️ Failed to load data: " + err.message);
@@ -1163,6 +1273,13 @@ function JannasDashboard() {
   }
 
   useEffect(() => { if (authReady) loadAll(); }, [authReady, sessionUserId]);
+  // Auto-sync once per load when owner is signed in, a calendar is chosen and
+  // this tab still holds a valid Google token (no popup without a tap).
+  useEffect(() => {
+    if (!session || !gcalSetting?.calendar_id || gcalAutoTried.current) return;
+    gcalAutoTried.current = true;
+    gcalSyncRef.current?.({ interactive: false });
+  }, [session, gcalSetting]);
 
   async function handleAddSelfCleaner(name) {
     try {
@@ -1796,6 +1913,229 @@ function JannasDashboard() {
     window.location.href = `mailto:${encodeURIComponent(c?.email || "")}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
+  // ── GOOGLE CALENDAR SYNC ───────────────────────────────────────
+  function localNowStr() {
+    const n = new Date();
+    return toDateStr(n.getFullYear(), n.getMonth(), n.getDate()) + "T" + String(n.getHours()).padStart(2,"0") + ":" + String(n.getMinutes()).padStart(2,"0");
+  }
+
+  async function connectGcal() {
+    if (!requireOwner()) return;
+    try {
+      setGcalBusy(true);
+      const token = await getGoogleToken(true);
+      const r = await gapi(token, "users/me/calendarList?minAccessRole=reader");
+      setGcalPicker((r.items || []).sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0)));
+    } catch (err) { showNotif("⚠️ " + err.message); }
+    finally { setGcalBusy(false); }
+  }
+
+  async function chooseCalendar(cal) {
+    const value = { calendar_id: cal.id, calendar_name: cal.summaryOverride || cal.summary, last_sync: null };
+    const { error } = await supabase.from('app_settings').upsert({ key: 'gcal', value, updated_at: new Date().toISOString() });
+    if (error) { showNotif("⚠️ " + error.message); return; }
+    setGcalSetting(value); setGcalPicker(null);
+    await syncCalendar({ interactive: true, setting: value });
+  }
+
+  async function disconnectGcal() {
+    if (!window.confirm("Stop syncing Google Calendar? Jobs already brought in stay.")) return;
+    await supabase.from('app_settings').upsert({ key: 'gcal', value: null, updated_at: new Date().toISOString() });
+    try { sessionStorage.removeItem(GCAL_TOKEN_KEY); } catch {}
+    setGcalSetting(null);
+    showNotif("Google Calendar disconnected");
+  }
+
+  // Turn matched calendar rows into jobs (create or update). Google is the
+  // source for date/time/location/cancellation; price, cleaner and notes
+  // edited in the app are kept.
+  async function materializeJobs(rows, recurrenceById = {}) {
+    const nowStr = localNowStr();
+    const byEvent = Object.fromEntries(jobs.filter(j => j.gcal_event_id).map(j => [j.gcal_event_id, j]));
+    const created = [], updates = [];
+    const pool = [...jobs];
+    for (const r of rows) {
+      if (!r.client_id || r.ignored) continue;
+      const job = byEvent[r.id] || (r.job_id && jobs.find(j => j.id === r.job_id));
+      const ended = (r.start_date + "T" + (r.end_time || "23:59")) < nowStr;
+      if (r.status === "cancelled") {
+        if (job && job.status !== "cancelled") updates.push([job.id, { status: "cancelled" }]);
+        continue;
+      }
+      if (job) {
+        const patch = {};
+        if (job.date !== r.start_date) patch.date = r.start_date;
+        if ((job.time || "") !== (r.start_time || "")) patch.time = r.start_time || "";
+        if (r.location && job.address !== r.location) patch.address = r.location;
+        if (ended && (job.status === "scheduled" || job.status === "pending")) patch.status = "completed";
+        if (job.status === "cancelled") patch.status = ended ? "completed" : "scheduled"; // un-cancelled in Google
+        if (Object.keys(patch).length) updates.push([job.id, patch]);
+      } else {
+        const client = clients.find(c => c.id === r.client_id);
+        const address = r.location || client?.address || "";
+        const price = lastPriceFor(pool, r.client_id, address);
+        const nj = {
+          client_id: r.client_id, address, type: guessServiceType(r.summary + " " + (r.description || "")),
+          recurring: recurrenceById[r.recurring_event_id] || "One-time",
+          status: ended ? "completed" : "scheduled", date: r.start_date, time: r.start_time || "",
+          cleaner: "Unassigned", notes: (r.description || "").slice(0, 1000), price, gcal_event_id: r.id,
+        };
+        created.push(nj); pool.push(nj);
+      }
+    }
+    for (const [id, patch] of updates) {
+      const { error } = await supabase.from('jobs').update(patch).eq('id', id);
+      if (error) throw error;
+    }
+    let made = [];
+    for (let i = 0; i < created.length; i += 200) {
+      const { data, error } = await supabase.from('jobs').insert(created.slice(i, i + 200)).select('id, gcal_event_id');
+      if (error) throw error;
+      made = made.concat(data || []);
+    }
+    for (const m of made) await supabase.from('calendar_events').update({ job_id: m.id }).eq('id', m.gcal_event_id);
+    return { created: made.length, updated: updates.length };
+  }
+
+  async function syncCalendar({ interactive, setting } = {}) {
+    const cfg = setting || gcalSetting;
+    if (!cfg?.calendar_id || !session) return;
+    if (gcalSyncing.current) return;
+    gcalSyncing.current = true;
+    gcalAutoTried.current = true; // a manual/connect sync counts — don't auto-sync on top of it
+    setGcalBusy(true);
+    try {
+      const token = await getGoogleToken(interactive);
+      const now = Date.now();
+      const base = new URLSearchParams({
+        singleEvents: "true", showDeleted: "true", maxResults: "2500",
+        timeMin: new Date(now - GCAL_DAYS_BACK * 864e5).toISOString(),
+        timeMax: new Date(now + GCAL_DAYS_AHEAD * 864e5).toISOString(),
+      });
+      const calPath = "calendars/" + encodeURIComponent(cfg.calendar_id) + "/events";
+      let items = [], pageToken = "";
+      do {
+        const q = new URLSearchParams(base); if (pageToken) q.set("pageToken", pageToken);
+        const r = await gapi(token, calPath + "?" + q);
+        items = items.concat(r.items || []); pageToken = r.nextPageToken;
+      } while (pageToken);
+
+      const prevById = Object.fromEntries(calEvents.map(e => [e.id, e]));
+      const syncedAt = new Date().toISOString();
+      const rows = [];
+      for (const ev of items) {
+        const f = eventFields(ev), prev = prevById[f.id];
+        if (!f.start_date) { // deleted instance with no times — only matters if we already have it
+          if (prev) rows.push({ ...prev, status: "cancelled", synced_at: syncedAt });
+          continue;
+        }
+        rows.push({ ...f, calendar_id: cfg.calendar_id,
+          client_id: prev?.client_id ?? matchClient(f, clients, properties, calAliases),
+          job_id: prev?.job_id ?? null, ignored: prev?.ignored ?? false, synced_at: syncedAt });
+      }
+      for (let i = 0; i < rows.length; i += 500) {
+        const { error } = await supabase.from('calendar_events').upsert(rows.slice(i, i + 500), { onConflict: 'id' });
+        if (error) throw error;
+      }
+      // Real frequency for repeating events (one lookup per series that's about to become a job)
+      const recurrenceById = {};
+      const needSeries = [...new Set(rows.filter(r => r.recurring_event_id && r.client_id && !jobs.some(j => j.gcal_event_id === r.id)).map(r => r.recurring_event_id))];
+      for (const sid of needSeries.slice(0, 50)) {
+        try { const m = await gapi(token, calPath + "/" + encodeURIComponent(sid)); recurrenceById[sid] = rruleToRecurrence(m.recurrence); } catch {}
+      }
+      const res = await materializeJobs(rows, recurrenceById);
+      const value = { ...cfg, last_sync: syncedAt };
+      await supabase.from('app_settings').upsert({ key: 'gcal', value, updated_at: syncedAt });
+      setGcalSetting(value);
+      await loadAll({ silent: true });
+      const unmatched = rows.filter(r => !r.client_id && !r.ignored && r.status !== "cancelled").length;
+      showNotif(`✓ Calendar synced — ${res.created} new job${res.created !== 1 ? "s" : ""}, ${res.updated} updated${unmatched ? `, ${unmatched} need a client` : ""}`);
+    } catch (err) {
+      if (err.message !== "no-token") showNotif("⚠️ " + err.message);
+    } finally { gcalSyncing.current = false; setGcalBusy(false); }
+  }
+  gcalSyncRef.current = syncCalendar;
+
+  async function assignCalEvent(ev, clientId, remember) {
+    if (!clientId) { showNotif("⚠️ Pick a client"); return; }
+    try {
+      const key = normKey(ev.summary);
+      const targets = calEvents.filter(e => e.id === ev.id || (remember && !e.client_id && !e.ignored && normKey(e.summary) === key));
+      if (remember) {
+        const { error } = await supabase.from('calendar_aliases').upsert({ key, client_id: clientId });
+        if (error) throw error;
+      }
+      for (const t of targets) {
+        const { error } = await supabase.from('calendar_events').update({ client_id: clientId }).eq('id', t.id);
+        if (error) throw error;
+      }
+      const res = await materializeJobs(targets.map(t => ({ ...t, client_id: clientId })));
+      setAssignDraft(d => { const n = { ...d }; delete n[ev.id]; return n; });
+      await loadAll({ silent: true });
+      showNotif(`✓ Assigned — ${res.created} job${res.created !== 1 ? "s" : ""} added`);
+    } catch (err) { showNotif("⚠️ " + err.message); }
+  }
+
+  async function ignoreCalEvent(ev) {
+    const { error } = await supabase.from('calendar_events').update({ ignored: true }).eq('id', ev.id);
+    if (error) { showNotif("⚠️ " + error.message); return; }
+    setCalEvents(p => p.map(e => e.id === ev.id ? { ...e, ignored: true } : e));
+  }
+
+  // ── BILL FROM SCHEDULE ─────────────────────────────────────────
+  function openBillSched() {
+    const n = new Date();
+    const d = n.getDate() <= 10 ? new Date(n.getFullYear(), n.getMonth() - 1, 1) : new Date(n.getFullYear(), n.getMonth(), 1);
+    setBillSched({ month: toDateStr(d.getFullYear(), d.getMonth(), 1).slice(0, 7), split: {}, skip: {}, busy: false });
+  }
+
+  function billGroups(bs) {
+    const pending = jobs.filter(j => j.status === "completed" && (j.date || "").startsWith(bs.month) && !billedJobIds.has(j.id))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const groups = {};
+    for (const j of pending) {
+      const byProp = !!bs.split[j.client_id];
+      const key = byProp ? j.client_id + "|" + normKey(j.address) : j.client_id;
+      (groups[key] = groups[key] || { key, client_id: j.client_id, address: byProp ? j.address : null, jobs: [] }).jobs.push(j);
+    }
+    return Object.values(groups).map(g => {
+      const lines = g.jobs.map(jobLine);
+      const t = lineTotals(lines, NJ_TAX_RATE);
+      return { ...g, lines, ...t, missing: lines.filter(l => !(Number(l.unit_price) > 0)).length,
+        addrCount: new Set(pending.filter(j => j.client_id === g.client_id).map(j => normKey(j.address))).size };
+    }).sort((a, b) => (clientById(a.client_id)?.name || "").localeCompare(clientById(b.client_id)?.name || ""));
+  }
+
+  async function createScheduledInvoices() {
+    if (!requireOwner()) return;
+    const groups = billGroups(billSched).filter(g => !billSched.skip[g.key]);
+    if (groups.length === 0) { showNotif("⚠️ Nothing selected to bill"); return; }
+    if (groups.some(g => g.missing) && !window.confirm("Some cleanings have no price ($0). Create anyway? You can edit those invoices after.")) return;
+    setBillSched(b => ({ ...b, busy: true }));
+    const monthName = monthLabel(billSched.month);
+    let num = parseInt((nextInvoiceNumber(invoices).match(/\d+/) || ["0"])[0], 10), made = 0;
+    try {
+      for (const g of groups) {
+        const { error } = await supabase.rpc('save_invoice', { p: {
+          id: null, client_id: g.client_id, invoice_number: "INV" + String(num).padStart(4, "0"),
+          invoice_date: todayStr, due_date: todayStr, po_number: "",
+          notes: `Cleaning services for ${monthName}${g.address ? ` — ${g.address}` : ""}`,
+          tax_rate: NJ_TAX_RATE, items: g.lines.map(l => ({ ...l, quantity: Number(l.quantity) || 1, unit_price: Number(l.unit_price) || 0 })),
+        }});
+        if (error) throw error;
+        num++; made++;
+      }
+      setBillSched(null);
+      await loadAll({ silent: true });
+      setInvTab("unpaid"); setInvSearch("");
+      showNotif(`✓ Created ${made} invoice${made !== 1 ? "s" : ""} for ${monthName}`);
+    } catch (err) {
+      setBillSched(b => b && ({ ...b, busy: false }));
+      await loadAll({ silent: true });
+      showNotif(`⚠️ Stopped after ${made} invoice${made !== 1 ? "s" : ""}: ${err.message}`);
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // RENDER PAGES
   // ═══════════════════════════════════════════════════════════════
@@ -2069,7 +2409,72 @@ function JannasDashboard() {
     </>
   );
 
+  const fmtStamp = iso => iso ? new Date(iso).toLocaleString("en-US", { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" }) : "never";
+
+  const renderGcalCard = () => {
+    const head = (right) => (
+      <div className="card-header">
+        <div className="card-title" style={{fontSize:17}}>📆 Google Calendar{gcalSetting?.calendar_name ? ` · ${gcalSetting.calendar_name}` : ""}</div>
+        <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>{right}</div>
+      </div>
+    );
+    if (!session) return <div className="card">{head(<button className="btn btn-ghost" onClick={openSignIn}>🔒 Sign in as owner to sync</button>)}</div>;
+    if (!GOOGLE_CLIENT_ID) return (
+      <div className="card">{head(null)}
+        <div className="chart-empty">Almost ready — the one-time Google setup isn't finished yet (the app needs its Google Client ID). Once it's added, a "Connect" button appears here.</div>
+      </div>
+    );
+    if (!gcalSetting?.calendar_id) return (
+      <div className="card">{head(<button className="btn btn-primary" disabled={gcalBusy} onClick={connectGcal}>{gcalBusy ? "…" : "Connect Google Calendar"}</button>)}
+        <div className="chart-empty">Connect Janna's work calendar — her cleanings there become jobs here automatically, ready to invoice.</div>
+      </div>
+    );
+    const unmatched = calEvents.filter(e => !e.client_id && !e.ignored && e.status !== "cancelled" && e.calendar_id === gcalSetting.calendar_id)
+      .sort((a, b) => (a.start_date || "").localeCompare(b.start_date || ""));
+    const synced = calEvents.filter(e => e.client_id && !e.ignored && e.status !== "cancelled" && e.calendar_id === gcalSetting.calendar_id).length;
+    return (
+      <div className="card">
+        {head(<>
+          <span style={{fontSize:12,color:"var(--slate-mid)"}}>Last synced {fmtStamp(gcalSetting.last_sync)} · {synced} linked</span>
+          <button className="btn btn-primary" disabled={gcalBusy} onClick={() => syncCalendar({ interactive: true })}>{gcalBusy ? "Syncing…" : "↻ Sync now"}</button>
+          <button className="btn btn-ghost" disabled={gcalBusy} onClick={connectGcal}>Change</button>
+          <button className="btn btn-ghost" onClick={disconnectGcal}>Disconnect</button>
+        </>)}
+        {unmatched.length > 0 && (
+          <div style={{borderTop:"1px solid #eef2f5"}}>
+            <div style={{padding:"10px 18px 4px",fontSize:13,fontWeight:600}}>Needs a client ({unmatched.length})
+              <span style={{fontWeight:400,color:"var(--slate-mid)"}}> — pick once; "Remember" matches future events with the same title</span></div>
+            {unmatched.slice(0, 15).map(ev => {
+              const d = assignDraft[ev.id] || { client_id: "", remember: true };
+              const setD = patch => setAssignDraft(p => ({ ...p, [ev.id]: { ...d, ...patch } }));
+              return (
+                <div key={ev.id} style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap",padding:"10px 18px",borderBottom:"1px solid #f4f7f9"}}>
+                  <div style={{flex:"1 1 220px",minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:14}}>{ev.summary}</div>
+                    <div style={{fontSize:12,color:"var(--slate-mid)"}}>{fmtDateY(ev.start_date)}{ev.start_time ? ` · ${ev.start_time}` : ""}{ev.location ? ` · ${ev.location}` : ""}</div>
+                  </div>
+                  <select className="form-select" style={{width:200}} value={d.client_id} onChange={e=>setD({ client_id: e.target.value })}>
+                    <option value="">Which client?</option>
+                    {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <label style={{fontSize:12,display:"flex",gap:4,alignItems:"center"}}>
+                    <input type="checkbox" checked={d.remember} onChange={e=>setD({ remember: e.target.checked })} /> Remember
+                  </label>
+                  <button className="btn btn-primary" onClick={()=>assignCalEvent(ev, d.client_id, d.remember)}>Assign</button>
+                  <button className="btn btn-ghost" title="Not a cleaning — skip it" onClick={()=>ignoreCalEvent(ev)}>Ignore</button>
+                </div>
+              );
+            })}
+            {unmatched.length > 15 && <div className="chart-empty">…and {unmatched.length - 15} more. Assigning with "Remember" clears matching ones too.</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderSchedule = () => (
+    <>
+    {isOwner && renderGcalCard()}
     <div className="card">
       <div className="filter-tabs">
         <button className={`filter-tab ${scheduleView==="calendar"?"active":""}`} onClick={()=>setScheduleView("calendar")}>Calendar</button>
@@ -2079,6 +2484,7 @@ function JannasDashboard() {
         {scheduleView === "calendar" ? renderScheduleCalendar() : renderScheduleList()}
       </div>
     </div>
+    </>
   );
 
   // Unpaid balance per client — only knowable with the owner session
@@ -2641,7 +3047,12 @@ function JannasDashboard() {
     clients:   isOwner ? <button className="btn btn-primary" onClick={()=>setShowClientModal(true)}>+ Add Client</button> : null,
     notes:     <button className="btn btn-primary" onClick={()=>setShowNoteModal(true)}>+ Add Note</button>,
     team:      isOwner ? <button className="btn btn-primary" onClick={()=>setShowCleanerModal(true)}>+ Add Cleaner</button> : null,
-    invoices:  isOwner && session ? <button className="btn btn-primary" onClick={()=>openNewInvoice()}>+ New Invoice</button> : null,
+    invoices:  isOwner && session ? (
+      <>
+        <button className="btn btn-ghost" style={{background:"#fff"}} onClick={openBillSched}>📆<span className="hide-sm"> Bill from Schedule</span><span className="show-sm"> Bill</span></button>
+        <button className="btn btn-primary" onClick={()=>openNewInvoice()}>+ New Invoice</button>
+      </>
+    ) : null,
     books:     isOwner && session ? (
       <>
         <button className="btn btn-ghost" style={{background:"#fff"}} onClick={openTaxPay}>💵<span className="hide-sm"> Pay Sales Tax</span><span className="show-sm"> Tax</span></button>
@@ -2950,6 +3361,98 @@ function JannasDashboard() {
           </div>
         </div>
       )}
+
+      {/* GOOGLE CALENDAR PICKER */}
+      {gcalPicker && (
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setGcalPicker(null)}>
+          <div className="modal">
+            <div className="modal-header">
+              <div className="modal-title">Choose the work calendar</div>
+              <button className="modal-close" onClick={()=>setGcalPicker(null)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div style={{fontSize:12,color:"var(--slate-mid)",marginBottom:10}}>Pick the calendar Janna books cleanings on. Only that calendar is read — personal calendars stay private.</div>
+              {gcalPicker.length === 0 && <div className="chart-empty">No calendars found on this Google account.</div>}
+              {gcalPicker.map(c => (
+                <div key={c.id} className="job-pick" style={{borderBottom:"1px solid #f4f7f9",padding:"10px 4px"}} onClick={()=>chooseCalendar(c)}>
+                  <span style={{width:12,height:12,borderRadius:3,background:c.backgroundColor || "#ccc",flexShrink:0}}></span>
+                  <span style={{flex:1}}><b>{c.summaryOverride || c.summary}</b>{c.primary ? <span style={{color:"var(--slate-mid)"}}> · main calendar</span> : ""}</span>
+                  <span style={{color:"var(--ocean)",fontSize:12}}>Use this →</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* BILL FROM SCHEDULE */}
+      {billSched && (() => {
+        const groups = billGroups(billSched);
+        const chosen = groups.filter(g => !billSched.skip[g.key]);
+        const monthOpts = [];
+        for (let i = 0; i < 12; i++) { const d = new Date(new Date().getFullYear(), new Date().getMonth() - i, 1); monthOpts.push(toDateStr(d.getFullYear(), d.getMonth(), 1).slice(0, 7)); }
+        const clientIds = [...new Set(groups.map(g => g.client_id))];
+        return (
+          <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&!billSched.busy&&setBillSched(null)}>
+            <div className="modal modal-wide">
+              <div className="modal-header">
+                <div className="modal-title">Bill from Schedule</div>
+                <button className="modal-close" onClick={()=>!billSched.busy && setBillSched(null)}>×</button>
+              </div>
+              <div className="modal-body">
+                <div className="form-row">
+                  <div className="form-group">
+                    <label className="form-label">Month</label>
+                    <select className="form-select" value={billSched.month} onChange={e=>setBillSched(b=>({...b, month:e.target.value, skip:{}}))}>
+                      {monthOpts.map(m=><option key={m} value={m}>{monthLabel(m)}</option>)}
+                    </select>
+                  </div>
+                  <div style={{fontSize:12,color:"var(--slate-mid)",alignSelf:"end",paddingBottom:12}}>
+                    Completed cleanings in {monthLabel(billSched.month)} that haven't been invoiced yet.
+                  </div>
+                </div>
+                {groups.length === 0 && <div className="empty"><div className="empty-icon">✅</div><div className="empty-text">Nothing left to bill for {monthLabel(billSched.month)}</div></div>}
+                {clientIds.map(cid => {
+                  const cg = groups.filter(g => g.client_id === cid);
+                  const multi = cg[0].addrCount > 1;
+                  return (
+                    <div key={cid} style={{border:"1px solid #eef2f5",borderRadius:10,marginBottom:10}}>
+                      <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderBottom:"1px solid #f4f7f9"}}>
+                        <div className="client-avatar" style={{background:colorFor(cid),width:30,height:30,fontSize:13}}>{(clientById(cid)?.name || "?")[0]}</div>
+                        <b style={{flex:1}}>{clientById(cid)?.name || "Unknown"}</b>
+                        {multi && (
+                          <label style={{fontSize:12,display:"flex",gap:4,alignItems:"center"}}>
+                            <input type="checkbox" checked={!!billSched.split[cid]} onChange={e=>setBillSched(b=>({...b, split:{...b.split,[cid]:e.target.checked}, skip:{}}))} />
+                            One invoice per property
+                          </label>
+                        )}
+                      </div>
+                      {cg.map(g => (
+                        <label key={g.key} className="job-pick" style={{padding:"8px 12px"}}>
+                          <input type="checkbox" checked={!billSched.skip[g.key]} onChange={e=>setBillSched(b=>({...b, skip:{...b.skip,[g.key]:!e.target.checked}}))} />
+                          <span style={{flex:1}}>
+                            {g.address ? <b>{g.address}</b> : null}{g.address ? " · " : ""}{g.jobs.length} cleaning{g.jobs.length !== 1 ? "s" : ""}
+                            <span style={{color:"var(--slate-mid)"}}> ({g.jobs.map(j => fmtDate(j.date)).join(", ")})</span>
+                            {g.missing > 0 && <span style={{color:"var(--coral)"}}> · {g.missing} without a price</span>}
+                          </span>
+                          <span style={{fontVariantNumeric:"tabular-nums",fontWeight:600}}>{fmtMoney(g.total)}</span>
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="modal-footer">
+                <span style={{marginRight:"auto",fontSize:13,color:"var(--slate-mid)"}}>{chosen.length} invoice{chosen.length !== 1 ? "s" : ""} · {fmtMoney(chosen.reduce((t,g)=>t+g.total,0))} incl. tax</span>
+                <button className="btn btn-ghost" disabled={billSched.busy} onClick={()=>setBillSched(null)}>Cancel</button>
+                <button className="btn btn-primary" disabled={billSched.busy || chosen.length === 0} onClick={createScheduledInvoices}>
+                  {billSched.busy ? "Creating…" : `Create ${chosen.length} invoice${chosen.length !== 1 ? "s" : ""}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* PAY SALES TAX MODAL */}
       {taxPayForm && (

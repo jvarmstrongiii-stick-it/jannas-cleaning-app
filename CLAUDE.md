@@ -149,6 +149,31 @@ see money); tapping it opens Invoices → Unpaid searched to that client.
 The recurrence/jobs column hides on phones (`.hide-sm`). Sales tax payments are deliberately NOT a
 P&L expense (pass-through liability) — only NJ penalties/interest are.
 
+## Google Calendar sync (r37, migration 013)
+Janna schedules in a dedicated Google work calendar; the app is read-only
+on it. No server: the signed-in owner's browser gets a 1-hour
+calendar.readonly token via Google Identity Services (`getGoogleToken`,
+cached in sessionStorage) using `GOOGLE_CLIENT_ID` (public OAuth web client
+— EMPTY until the Google Cloud setup is done; UI then shows a setup note).
+So sync runs on "↻ Sync now" or auto on load if this tab still has a valid
+token — never in the background. `syncCalendar()` pulls -60/+120 days with
+singleEvents+showDeleted, upserts `calendar_events` (id = Google instance
+id), matches clients via `matchClient()` (remembered title alias in
+`calendar_aliases` → client name in title → saved property / client street
+"1705 wesley" in location), then `materializeJobs()` creates/updates jobs
+keyed by `jobs.gcal_event_id` (unique). Google owns date/time/location/
+cancellation; app-side price/cleaner/notes are kept. Ended events →
+completed (billable); cancelled → cancelled. Repeating series frequency
+from the master event's RRULE. Unmatched events show in Schedule →
+"Needs a client" (Assign + Remember, or Ignore). `gcalSyncing` ref
+prevents overlapping syncs (connect + auto-sync once doubled every job).
+Bill from Schedule (Invoices top bar): month → completed un-invoiced jobs
+grouped per client (optional one-per-property), creates invoices via
+`save_invoice` with sequential numbers. Calendar events carry no prices —
+first invoice per client sets them (save_invoice copies rate → jobs.price).
+Settings live in `app_settings` key 'gcal' = {calendar_id, calendar_name,
+last_sync}. Test with mock2.js-style fake `window.google` + fetch.
+
 ## Books tab (owner-only, signed in)
 P&L (period presets + Accrual/Cash toggle, month-by-month breakdown), NJ
 sales tax by quarter, and expenses — all computed client-side from
