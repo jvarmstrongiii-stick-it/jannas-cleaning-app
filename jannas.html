@@ -16,7 +16,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 35;
+const APP_REV = 36;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -2081,11 +2081,23 @@ function JannasDashboard() {
     </div>
   );
 
+  // Unpaid balance per client — only knowable with the owner session
+  // (invoices are owner-only in RLS), so cleaners never see money here.
+  const owedByClient = {};
+  if (session) invoices.forEach(i => {
+    if (i.status === "void" || !(Number(i.balance_due) > 0.004)) return;
+    const o = owedByClient[i.client_id] || (owedByClient[i.client_id] = { amt: 0, n: 0 });
+    o.amt += Number(i.balance_due); o.n += 1;
+  });
+  const totalOwed = Object.values(owedByClient).reduce((t, o) => t + o.amt, 0);
+
   const renderClients = () => (
     <div className="card">
       <div className="card-header">
         <div className="card-title">All Clients</div>
-        <span style={{fontSize:12,color:"var(--slate-mid)"}}>{clients.length} total</span>
+        <span style={{fontSize:12,color:"var(--slate-mid)"}}>
+          {clients.length} total{session && totalOwed > 0 ? <> · <b style={{color:"var(--coral)"}}>{fmtMoney(totalOwed)}</b> unpaid</> : ""}
+        </span>
       </div>
       <div className="card-body">
         {clients.length === 0
@@ -2100,12 +2112,24 @@ function JannasDashboard() {
                     <div className="client-name">{c.name}</div>
                     <div className="client-addr">{c.address || "No address on file"}</div>
                   </div>
-                  <div style={{textAlign:"right", marginRight:10}}>
+                  {session && (
+                    <div style={{textAlign:"right", marginRight:10, flexShrink:0}}>
+                      {owedByClient[c.id]
+                        ? <button title="Show this client's unpaid invoices"
+                            onClick={()=>{ setInvTab("unpaid"); setInvSearch(c.name); setActiveNav("invoices"); }}
+                            style={{border:"none",background:"none",cursor:"pointer",padding:0,textAlign:"right"}}>
+                            <div style={{fontSize:14,fontWeight:700,color:"var(--coral)",fontVariantNumeric:"tabular-nums"}}>{fmtMoney(owedByClient[c.id].amt)}</div>
+                            <div style={{fontSize:11,color:"var(--slate-mid)"}}>{owedByClient[c.id].n} unpaid →</div>
+                          </button>
+                        : <div style={{fontSize:11,color:"var(--slate-mid)"}}>Paid up</div>}
+                    </div>
+                  )}
+                  <div className="hide-sm" style={{textAlign:"right", marginRight:10}}>
                     <div style={{fontSize:12,fontWeight:600,color:"var(--ocean)"}}>{lastJob?.recurring || "—"}</div>
                     <div style={{fontSize:11,color:"var(--slate-mid)"}}>{clientJobs.length} job{clientJobs.length!==1?"s":""}</div>
                   </div>
                   {lastJob && (
-                    <span className={`badge badge-${lastJob.status}`} style={{marginRight: isOwner ? 10 : 0}}>
+                    <span className={`badge badge-${lastJob.status} hide-sm`} style={{marginRight: isOwner ? 10 : 0}}>
                       <span className="badge-dot"></span>{lastJob.status}
                     </span>
                   )}

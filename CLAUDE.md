@@ -143,7 +143,10 @@ Email = `mailto:` (user attaches the PDF). No online payments.
 Signed-in owner sees outstanding total + the 5 oldest unpaid invoices
 (due date, else invoice date), each opening the invoice; "View all" jumps
 to Invoices with the Unpaid filter. Owner not signed in sees a sign-in
-prompt; cleaners see nothing. Sales tax payments are deliberately NOT a
+prompt; cleaners see nothing. Clients screen (r36) shows each client's
+unpaid balance + count (`owedByClient`, owner session only — cleaners never
+see money); tapping it opens Invoices → Unpaid searched to that client.
+The recurrence/jobs column hides on phones (`.hide-sm`). Sales tax payments are deliberately NOT a
 P&L expense (pass-through liability) — only NJ penalties/interest are.
 
 ## Books tab (owner-only, signed in)
