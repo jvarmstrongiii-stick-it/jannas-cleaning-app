@@ -47,9 +47,9 @@ live project (`hcoslltuiltkkbqcgtzm`).
    the equivalent) once so someone can reach Team/Book/Edit Job. After
    that, ownership can be reassigned from the Edit Cleaner modal's Role
    field instead of SQL.
-3. `APP_PASSPHRASE` in `jannas.html` holds the shared passphrase for staff
-   devices (see Trusted-device gate below) — update it there if it needs
-   to change.
+3. Everyone signs in with email + password (see Login below). To add a
+   team member, put their email on the Team screen; they then use
+   "First time? Set up login".
 4. Import the repo once in Vercel (Add New → Project, framework preset
    "Other", no build command). After that, every push to `main` deploys.
 
@@ -113,19 +113,17 @@ a "+N" overflow), where tapping a day expands that day's jobs below the
 grid using the same renderer the List view uses per date group. Owners
 get a "+ Book this day" shortcut that pre-fills the Book Job modal's date.
 
-## Trusted-device gate
+## Login
 
-On first load, a device must enter a shared passphrase (`APP_PASSPHRASE`
-in jannas.html) before seeing any data. This is a lightweight "who's on
-this device" gate for a shared tablet/phone, not real authentication — the
-Supabase anon key is still open + RLS-gated the same as everywhere else in
-the app. Once unlocked, the device stays unlocked (`localStorage`, no
-expiry) and the user picks their name from the `cleaners` roster (or adds
-themselves inline if the roster is empty). Switching users doesn't
-re-prompt the passphrase; "Lock device" in the avatar menu does.
+Since r40 everyone signs in with Supabase Auth (email + password, with
+"Forgot password?" reset). There is no anonymous access: migration 014
+removed the open anon policies, so the public key in the page can't read
+or change anything on its own. A login only gets data if its email matches
+an active person on the Team screen; the owner role unlocks Invoices,
+Books and calendar sync.
 
 ## Deferred (not built yet)
 
-Client-facing login/portal, real per-user auth for cleaners, push
+Client-facing login/portal, push
 notifications, auto-generated recurring jobs, online card payments,
 sending invoices by email from the app, multi-tenant support.

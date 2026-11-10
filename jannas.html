@@ -17,7 +17,7 @@
 <script type="text/babel">
 const { useState, useEffect, useRef } = React;
 
-const APP_REV = 39;
+const APP_REV = 40;
 
 // ── Supabase config ──────────────────────────────────────────────
 const SUPABASE_URL = "https://hcoslltuiltkkbqcgtzm.supabase.co";
@@ -28,9 +28,8 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // Lightweight device gate, not real auth (RLS still uses the open anon
 // key above). TODO: set a real shared passphrase before handing devices
 // to staff.
-const APP_PASSPHRASE = "Bologna";
-const TRUST_KEY = "jannas_trusted_v1";
-const USER_KEY = "jannas_user_v1";
+// Legacy device-gate keys (pre-r40) — cleared on sign-out so old devices tidy up.
+const LEGACY_KEYS = ["jannas_trusted_v1", "jannas_user_v1"];
 
 const styles = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -346,6 +345,7 @@ const styles = `
   .gate-sub { font-size: 13px; color: var(--slate-mid); margin-bottom: 20px; }
   .gate-error { color: var(--coral); font-size: 12px; margin-top: 8px; }
   .gate-hint { font-size: 12px; font-style: italic; color: var(--slate-mid); margin-top: 8px; }
+  .gate-card a { color: var(--ocean); }
   .name-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-top: 8px; }
   .name-btn {
     display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -1019,95 +1019,109 @@ function SavedPropertyPicker({ properties, form, setForm }) {
   );
 }
 
-function PassphraseGate({ onUnlock }) {
-  const [value, setValue] = useState("");
-  const [error, setError] = useState("");
+// Real login for everyone (r40). Team members are rows in `cleaners` with an
+// email; a DB trigger links their Supabase Auth user to that row on sign-up.
+// RLS has no anon policies any more, so nothing loads until you sign in.
+function SignInScreen({ recovery, onRecoveryDone }) {
+  const [mode, setMode] = useState(recovery ? "newpass" : "signin"); // signin | signup | reset | newpass
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (recovery) setMode("newpass"); }, [recovery]);
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
-    if (value === APP_PASSPHRASE) {
-      onUnlock();
-    } else {
-      setError("Incorrect passphrase");
+    setMsg("");
+    if (mode !== "newpass" && !email.trim()) { setMsg("⚠️ Enter your email"); return; }
+    if (mode !== "reset" && password.length < 6) { setMsg("⚠️ Password must be at least 6 characters"); return; }
+    setBusy(true);
+    try {
+      if (mode === "reset") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: window.location.origin });
+        if (error) throw error;
+        setMode("signin"); setMsg(`✉️ If ${email.trim()} is on the team, a reset link is on its way.`);
+        return;
+      }
+      if (mode === "newpass") {
+        const { error } = await supabase.auth.updateUser({ password });
+        if (error) throw error;
+        onRecoveryDone && onRecoveryDone();
+        return;
+      }
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(), password, options: { emailRedirectTo: window.location.origin },
+        });
+        if (error) throw error;
+        if (!data.session) {
+          setMode("signin"); setPassword("");
+          setMsg(`✉️ Check ${email.trim()} for a confirmation link, click it, then sign in here.`);
+          return;
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw error;
+      }
+      // Signed in. If this email isn't on the team, JannasDashboard shows the
+      // "Not on the team yet" screen (with Sign out) — don't sign out here, or
+      // the re-render on login unmounts this form and the message is lost.
+    } catch (err) {
+      setMsg("⚠️ " + err.message);
+    } finally {
+      setBusy(false);
     }
   }
 
+  const titles = { signin:"Sign in", signup:"Set up your login", reset:"Reset password", newpass:"Choose a new password" };
   return (
     <>
       <style>{styles}</style>
       <div className="gate-screen">
-        <form className="gate-card" onSubmit={submit}>
+        <form className="gate-card" onSubmit={submit} style={{maxWidth:380}}>
           <div className="gate-icon">🧹</div>
           <div className="gate-title">Janna's Cleaning Service</div>
-          <div className="gate-sub">Enter the team passphrase to unlock this device</div>
-          <input className="form-input" type="password" value={value}
-            onChange={e=>{ setValue(e.target.value); setError(""); }}
-            placeholder="Passphrase" autoFocus />
-          <div className="gate-hint">Hint: What are you eating?</div>
-          {error && <div className="gate-error">{error}</div>}
+          <div className="gate-sub">{titles[mode]}{mode === "signup" && " — use the email Janna has on file for you"}</div>
+          {mode !== "newpass" && (
+            <input className="form-input" type="email" autoComplete="username" value={email}
+              onChange={e=>{ setEmail(e.target.value); setMsg(""); }} placeholder="Email" autoFocus />
+          )}
+          {mode !== "reset" && (
+            <input className="form-input" type="password" style={{marginTop:10}}
+              autoComplete={mode === "signin" ? "current-password" : "new-password"}
+              value={password} onChange={e=>{ setPassword(e.target.value); setMsg(""); }}
+              placeholder={mode === "signin" ? "Password" : "New password (6+ characters)"} />
+          )}
+          {msg && <div className="gate-error" style={{color: msg.startsWith("✉️") ? "var(--slate-mid)" : undefined}}>{msg}</div>}
           <div style={{marginTop:16}}>
-            <button className="btn btn-primary" type="submit" style={{width:"100%"}}>Unlock</button>
+            <button className="btn btn-primary" type="submit" style={{width:"100%"}} disabled={busy}>
+              {busy ? "…" : mode === "signin" ? "Sign in" : mode === "signup" ? "Create login" : mode === "reset" ? "Send reset link" : "Save password"}
+            </button>
           </div>
+          {mode !== "newpass" && (
+            <div style={{marginTop:14,fontSize:12,display:"flex",justifyContent:"space-between",gap:8}}>
+              {mode === "signin"
+                ? <a href="#" onClick={e=>{e.preventDefault(); setMode("signup"); setMsg("");}}>First time? Set up login</a>
+                : <a href="#" onClick={e=>{e.preventDefault(); setMode("signin"); setMsg("");}}>Back to sign in</a>}
+              {mode === "signin" && <a href="#" onClick={e=>{e.preventDefault(); setMode("reset"); setMsg("");}}>Forgot password?</a>}
+            </div>
+          )}
         </form>
       </div>
     </>
   );
 }
 
-function UserPicker({ cleaners, loading, onSelect, onAddNew }) {
-  const [showAdd, setShowAdd] = useState(false);
-  const [name, setName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const active = cleaners.filter(c => c.active);
-
-  async function submitAdd(e) {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      await onAddNew(name.trim());
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function GateMessage({ icon, title, sub, onSignOut }) {
   return (
     <>
       <style>{styles}</style>
       <div className="gate-screen">
-        <div className="gate-card" style={{maxWidth:420}}>
-          <div className="gate-icon">👋</div>
-          <div className="gate-title">Who's this?</div>
-          <div className="gate-sub">Pick your name to continue</div>
-          {loading
-            ? <div className="empty-text">Loading team…</div>
-            : active.length > 0 && (
-                <div className="name-grid">
-                  {active.map(c => (
-                    <button key={c.id} className="name-btn" onClick={()=>onSelect(c)}>
-                      <div className="name-avatar" style={{background:colorFor(c.id)}}>{c.name[0]}</div>
-                      <div className="name-label">{c.name}</div>
-                    </button>
-                  ))}
-                </div>
-              )
-          }
-          {!loading && !showAdd && (
-            <button className="btn btn-ghost" style={{marginTop:16,width:"100%"}} onClick={()=>setShowAdd(true)}>
-              + Add yourself
-            </button>
-          )}
-          {!loading && showAdd && (
-            <form onSubmit={submitAdd} style={{marginTop:16,textAlign:"left"}}>
-              <div className="form-group">
-                <label className="form-label">Your Name</label>
-                <input className="form-input" value={name} onChange={e=>setName(e.target.value)} placeholder="Full name" autoFocus />
-              </div>
-              <button className="btn btn-primary" type="submit" style={{width:"100%"}} disabled={busy}>
-                {busy ? "Adding…" : "Add & Continue"}
-              </button>
-            </form>
-          )}
+        <div className="gate-card" style={{maxWidth:380}}>
+          <div className="gate-icon">{icon}</div>
+          <div className="gate-title">{title}</div>
+          <div className="gate-sub">{sub}</div>
+          {onSignOut && <button className="btn btn-ghost" style={{width:"100%"}} onClick={onSignOut}>Sign out</button>}
         </div>
       </div>
     </>
@@ -1146,10 +1160,6 @@ function JannasDashboard() {
   const [clientForm, setClientForm] = useState(EMPTY_CLIENT_FORM);
   const [newPropertyForm, setNewPropertyForm] = useState(EMPTY_PROPERTY_FORM);
 
-  const [trusted, setTrusted] = useState(() => localStorage.getItem(TRUST_KEY) === 'true');
-  const [currentUser, setCurrentUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; }
-  });
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [calEvents, setCalEvents] = useState([]);
   const [calAliases, setCalAliases] = useState([]);
@@ -1163,12 +1173,12 @@ function JannasDashboard() {
   const gcalAutoTried = useRef(false);
   const gcalSyncing = useRef(false); // one sync at a time (connect + auto-sync raced and doubled jobs in testing)
 
-  // Real Supabase Auth session — only Janna (owner) signs in, and only to
-  // unlock invoicing. Everyone else keeps using the passphrase + name picker.
-  const [session, setSession] = useState(null);
+  // Real Supabase Auth session — everyone signs in (r40). `authSession` is the
+  // raw login; `session` (defined after isOwner) is non-null only for the owner,
+  // which is what all the money/invoice/calendar UI keys off.
+  const [authSession, setAuthSession] = useState(null);
   const [authReady, setAuthReady] = useState(false);
-  const [showSignIn, setShowSignIn] = useState(false);
-  const [signInForm, setSignInForm] = useState({ email:"", password:"", mode:"signin", msg:"", busy:false });
+  const [recovery, setRecovery] = useState(false);
 
   const [invoices, setInvoices] = useState([]);
   const [invoiceItems, setInvoiceItems] = useState([]);
@@ -1190,11 +1200,14 @@ function JannasDashboard() {
   const [taxPayForm, setTaxPayForm] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setAuthReady(true); });
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => setSession(s));
+    supabase.auth.getSession().then(({ data }) => { setAuthSession(data.session); setAuthReady(true); });
+    const { data: sub } = supabase.auth.onAuthStateChange((evt, s) => {
+      if (evt === "PASSWORD_RECOVERY") setRecovery(true);
+      setAuthSession(s);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
-  const sessionUserId = session?.user?.id || null;
+  const sessionUserId = authSession?.user?.id || null;
 
   // Repeat cleanings: pre-fill Book Job's price from the client's last
   // priced job (same address first) until the user types their own price.
@@ -1212,6 +1225,8 @@ function JannasDashboard() {
   function showNotif(msg) { setNotif(msg); }
 
   async function loadAll({ silent = false } = {}) {
+    const { data: { session: cur } } = await supabase.auth.getSession();
+    if (!cur) { setLoading(false); return; } // nothing is readable signed-out (no anon RLS)
     if (!silent) setLoading(true);
     try {
       const [clientsRes, jobsRes, notesRes, cleanersRes, propertiesRes] = await Promise.all([
@@ -1276,47 +1291,43 @@ function JannasDashboard() {
   // Auto-sync once per load when owner is signed in, a calendar is chosen and
   // this tab still holds a valid Google token (no popup without a tap).
   useEffect(() => {
-    if (!session || !gcalSetting?.calendar_id || gcalAutoTried.current) return;
+    if (!authSession || !gcalSetting?.calendar_id || gcalAutoTried.current) return;
     gcalAutoTried.current = true;
     gcalSyncRef.current?.({ interactive: false });
-  }, [session, gcalSetting]);
+  }, [authSession, gcalSetting]);
 
-  async function handleAddSelfCleaner(name) {
-    try {
-      const { data, error } = await supabase.from('cleaners').insert({ name, active: true }).select().single();
-      if (error) throw error;
-      setCleaners(p => [...p, data].sort((a,b) => a.name.localeCompare(b.name)));
-      const u = { id: data.id, name: data.name };
-      localStorage.setItem(USER_KEY, JSON.stringify(u));
-      setCurrentUser(u);
-    } catch (err) {
-      showNotif("⚠️ " + err.message);
-    }
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    LEGACY_KEYS.forEach(k => { try { localStorage.removeItem(k); } catch {} });
+    setShowUserMenu(false);
+    setViewInvoiceId(null); setInvoiceForm(null); setPaymentForm(null);
+    setActiveNav("dashboard");
+    setClients([]); setJobs([]); setNotes([]); setCleaners([]); setProperties([]);
   }
 
-  if (!trusted) {
+  if (!authReady) return <GateMessage icon="🧹" title="Janna's Cleaning Service" sub="Loading…" />;
+  if (!authSession || recovery) {
+    return <SignInScreen recovery={recovery} onRecoveryDone={() => setRecovery(false)} />;
+  }
+
+  const currentCleaner = cleaners.find(c => c.auth_user_id === authSession.user.id);
+  if (!currentCleaner) {
+    if (loading) return <GateMessage icon="🧹" title="Janna's Cleaning Service" sub="Loading…" />;
     return (
       <>
         {notif && <div className="notif">{notif}</div>}
-        <PassphraseGate onUnlock={() => { localStorage.setItem(TRUST_KEY, 'true'); setTrusted(true); }} />
+        <GateMessage icon="🔒" title="Not on the team yet"
+          sub={`${authSession.user.email} isn't linked to anyone on Janna's team. Ask Janna to add this email on the Team screen.`}
+          onSignOut={handleSignOut} />
       </>
     );
   }
-  if (!currentUser) {
-    return (
-      <>
-        {notif && <div className="notif">{notif}</div>}
-        <UserPicker cleaners={cleaners} loading={loading} onAddNew={handleAddSelfCleaner} onSelect={(c) => {
-          const u = { id: c.id, name: c.name };
-          localStorage.setItem(USER_KEY, JSON.stringify(u));
-          setCurrentUser(u);
-        }} />
-      </>
-    );
+  if (!currentCleaner.active) {
+    return <GateMessage icon="🔒" title="Account inactive" sub="Your access has been turned off. Talk to Janna if that's a mistake." onSignOut={handleSignOut} />;
   }
-
-  const currentCleaner = cleaners.find(c => c.id === currentUser.id);
-  const isOwner = currentCleaner?.role === 'owner';
+  const currentUser = { id: currentCleaner.id, name: currentCleaner.name };
+  const isOwner = currentCleaner.role === 'owner';
+  const session = isOwner ? authSession : null;
 
   function requireOwner() {
     if (!isOwner) { showNotif("⚠️ Only Janna can do that"); return false; }
@@ -1692,56 +1703,9 @@ function JannasDashboard() {
     }
   }
 
-  // ── OWNER SIGN-IN (Supabase Auth) ──────────────────────────────
-  const ownerEmail = cleaners.find(c => c.role === 'owner')?.email || "";
-
-  function openSignIn() {
-    setSignInForm({ email: ownerEmail, password:"", mode:"signin", msg:"", busy:false });
-    setShowSignIn(true);
-    setShowUserMenu(false);
-  }
-
-  async function handleSignIn() {
-    const { email, password, mode } = signInForm;
-    if (!email.trim() || !password) { setSignInForm(p => ({ ...p, msg:"⚠️ Email and password are required" })); return; }
-    setSignInForm(p => ({ ...p, busy:true, msg:"" }));
-    try {
-      if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(), password, options: { emailRedirectTo: window.location.origin },
-        });
-        if (error) throw error;
-        if (!data.session) {
-          setSignInForm(p => ({ ...p, busy:false, mode:"signin", password:"",
-            msg:`✉️ Check ${email.trim()} for a confirmation link, click it, then come back and sign in here.` }));
-          return;
-        }
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-        if (error) throw error;
-      }
-      // A signed-in user who isn't the linked owner would see NOTHING (the
-      // anon policies stop applying once you're "authenticated"), so verify
-      // and back out instead of blanking the app.
-      const { data: ok, error: rpcErr } = await supabase.rpc('is_owner');
-      if (rpcErr || !ok) {
-        await supabase.auth.signOut();
-        throw new Error(`That login isn't linked to the owner. Use the owner's email${ownerEmail ? ` (${ownerEmail})` : ""}.`);
-      }
-      setShowSignIn(false);
-      showNotif("✓ Signed in — invoices unlocked");
-    } catch (err) {
-      setSignInForm(p => ({ ...p, busy:false, msg: "⚠️ " + err.message }));
-    }
-  }
-
-  async function handleSignOut() {
-    await supabase.auth.signOut();
-    setShowUserMenu(false);
-    setViewInvoiceId(null); setInvoiceForm(null); setPaymentForm(null);
-    if (activeNav === "invoices" || activeNav === "books") setActiveNav("dashboard");
-    showNotif("Signed out of owner account");
-  }
+  // Everyone signs in at the door now (r40); old "sign in as owner" buttons
+  // only appear to cleaners, who can't unlock money screens.
+  function openSignIn() { showNotif("⚠️ Only Janna can do that"); }
 
   // ── INVOICES ───────────────────────────────────────────────────
   const clientById = id => clients.find(c => c.id === id);
@@ -3068,47 +3032,6 @@ function JannasDashboard() {
       <style>{styles}</style>
       {notif && <div className="notif">{notif}</div>}
 
-      {/* OWNER SIGN-IN MODAL */}
-      {showSignIn && (
-        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setShowSignIn(false)}>
-          <form className="modal" onSubmit={e=>{ e.preventDefault(); handleSignIn(); }}>
-            <div className="modal-header">
-              <div className="modal-title">{signInForm.mode === "signup" ? "Create owner login" : "Owner sign-in"}</div>
-              <button type="button" className="modal-close" onClick={()=>setShowSignIn(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div style={{fontSize:12,color:"var(--slate-mid)",marginBottom:14}}>
-                Unlocks invoices on this device. Stays signed in until you sign out.
-                {signInForm.mode === "signup" && " First time only: use the owner's email so the app recognizes you."}
-              </div>
-              <div className="form-group">
-                <label className="form-label">Email</label>
-                <input className="form-input" type="email" autoComplete="username" value={signInForm.email}
-                  onChange={e=>setSignInForm(p=>({...p,email:e.target.value}))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Password</label>
-                <input className="form-input" type="password" autoComplete={signInForm.mode === "signup" ? "new-password" : "current-password"}
-                  value={signInForm.password} onChange={e=>setSignInForm(p=>({...p,password:e.target.value}))}
-                  placeholder={signInForm.mode === "signup" ? "At least 6 characters" : ""} autoFocus />
-              </div>
-              {signInForm.msg && <div className="signin-msg">{signInForm.msg}</div>}
-              <div style={{marginTop:12,fontSize:12}}>
-                {signInForm.mode === "signin"
-                  ? <a href="#" onClick={e=>{e.preventDefault(); setSignInForm(p=>({...p,mode:"signup",msg:""}));}}>First time? Create the owner login</a>
-                  : <a href="#" onClick={e=>{e.preventDefault(); setSignInForm(p=>({...p,mode:"signin",msg:""}));}}>Already have a login? Sign in</a>}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button type="button" className="btn btn-ghost" onClick={()=>setShowSignIn(false)}>Cancel</button>
-              <button type="submit" className="btn btn-primary" disabled={signInForm.busy}>
-                {signInForm.busy ? "…" : signInForm.mode === "signup" ? "Create login" : "Sign in"}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
       {/* INVOICE VIEW MODAL */}
       {viewInvoiceId && (() => {
         const inv = invoices.find(i => i.id === viewInvoiceId);
@@ -3734,7 +3657,8 @@ function JannasDashboard() {
                 </div>
                 <div className="form-group">
                   <label className="form-label">Email</label>
-                  <input className="form-input" value={cleanerForm.email} onChange={e=>setCleanerForm(p=>({...p,email:e.target.value}))} />
+                  <input className="form-input" type="email" value={cleanerForm.email} onChange={e=>setCleanerForm(p=>({...p,email:e.target.value}))} />
+                  <div style={{fontSize:11,color:"var(--slate-mid)",marginTop:4}}>They sign in with this email ("First time? Set up login" on the sign-in screen).</div>
                 </div>
               </div>
             </div>
@@ -3907,11 +3831,8 @@ function JannasDashboard() {
               </div>
               {showUserMenu && (
                 <div className="user-menu" onMouseLeave={()=>setShowUserMenu(false)}>
-                  <div className="user-menu-header">{currentUser?.name}{session && <div style={{fontSize:11}}>🔓 Owner: {session.user.email}</div>}</div>
-                  {isOwner && !session && <div className="user-menu-item" onClick={openSignIn}>Sign in as owner</div>}
-                  {session && <div className="user-menu-item" onClick={handleSignOut}>Sign out of owner</div>}
-                  <div className="user-menu-item" onClick={()=>{ if (session) supabase.auth.signOut(); localStorage.removeItem(USER_KEY); setCurrentUser(null); setShowUserMenu(false); }}>Switch user</div>
-                  <div className="user-menu-item" onClick={()=>{ if (session) supabase.auth.signOut(); localStorage.removeItem(USER_KEY); localStorage.removeItem(TRUST_KEY); setCurrentUser(null); setTrusted(false); setShowUserMenu(false); }}>Lock device</div>
+                  <div className="user-menu-header">{currentUser?.name}<div style={{fontSize:11}}>{isOwner ? "🔓 Owner · " : ""}{authSession.user.email}</div></div>
+                  <div className="user-menu-item" onClick={handleSignOut}>Sign out</div>
                 </div>
               )}
             </div>

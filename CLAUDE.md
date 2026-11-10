@@ -24,8 +24,9 @@
 5. Prefix every commit message with `rNNN:` matching the new APP_REV.
 
 ## jannas.html IS the app
-All user-facing changes go in jannas.html. No auth, no backend server —
-Supabase JS client direct from the browser, RLS-gated.
+All user-facing changes go in jannas.html. No backend server — Supabase JS
+client direct from the browser, RLS-gated, and everyone signs in with
+Supabase Auth (r40, see "Login" below).
 
 ## Supabase project
 `SUPABASE_URL` / `SUPABASE_ANON_KEY` near the top of jannas.html are wired
@@ -114,8 +115,7 @@ read-only (print/pay/delete, no Edit).
 
 RLS: these tables have NO anon policy; only `authenticated` + `is_owner()`
 (cleaners row with role owner whose `auth_user_id` = auth.uid()). So Janna
-signs in with Supabase Auth (email+password, avatar menu → "Sign in as
-owner"); a trigger links a new auth user to the cleaners row with the same
+signs in with Supabase Auth (email+password at the r40 sign-in screen); a trigger links a new auth user to the cleaners row with the same
 email (jannalflexer@gmail.com). IMPORTANT: once signed in, requests run as
 `authenticated`, so the anon policies on clients/jobs/etc. no longer apply —
 the owner policies cover them. A signed-in non-owner would see an EMPTY app,
@@ -226,8 +226,8 @@ Owner-only: Book Job, Edit/Delete Job, Add/Edit Client, and all of Team
 cleaners): view all screens, mark a job complete, add notes (including the
 "+ New client…" inline path in that modal, which is not owner-gated).
 This is enforced both in the UI
-(buttons/nav hidden) and inside the mutating handlers via `requireOwner()`
-— defense in depth, though ultimately still just UX since RLS is open.
+(buttons/nav hidden) and inside the mutating handlers via `requireOwner()`,
+and since r40 also by RLS (is_owner / is_staff policies, no anon access).
 There is exactly one bootstrapping wrinkle: since Team is owner-gated and
 new `cleaners` rows default to `'cleaner'`, the very first owner has to be
 promoted directly in SQL (see `supabase/003_add_cleaner_role.sql`) — after
@@ -251,18 +251,31 @@ seeds `bookForm` (from `EMPTY_BOOK_FORM`, with `date` overridden) before
 calling the existing `setShowBookModal(true)` — the topbar's "+ Book Job"
 button is not the only way into that modal.
 
-## Trusted-device gate (not real auth)
-`APP_PASSPHRASE` near the top of jannas.html holds the current shared
-passphrase for staff devices. On first load a device must enter it once;
-that unlocks `localStorage[jannas_trusted_v1]="true"`
-permanently on that device (no expiry, no per-user check). After that, the
-user picks their name from `cleaners` (or adds themselves inline if the
-roster is empty) and it's stored as `localStorage[jannas_user_v1]`. This
-is a UX-level "who's on this device" convenience, not security — RLS still
-grants the open anon key full read/write, matching the rest of the app's
-security posture. Switching users doesn't re-prompt the passphrase by
-design (shared-tablet model); "Lock device" in the avatar menu clears both
-localStorage keys and re-shows the passphrase gate.
+## Login (r40) — everyone signs in, no anon access
+The old shared passphrase + "pick your name" device gate is GONE (it was UX
+only; RLS let the public anon key read/write clients, jobs, notes,
+properties and cleaners — and anyone could insert a role='owner' cleaner
+with their email and sign up to become owner). Migration 014 dropped every
+anon policy and revoked anon table/function privileges.
+
+Flow: `SignInScreen` (top-level component) — Sign in / "First time? Set up
+login" (signUp) / "Forgot password?" (resetPasswordForEmail; the
+PASSWORD_RECOVERY auth event flips `recovery` and shows "Choose a new
+password" → updateUser). A new auth user is linked to the `cleaners` row
+with the same email by the `link_auth_user_to_cleaner` trigger, so to add a
+team member Janna puts their EMAIL on the Team screen first, then they set
+up their login. Signed in but no linked/active cleaners row → "Not on the
+team yet" screen with Sign out (don't sign out from inside SignInScreen —
+the auth re-render unmounts it and the message is lost; hit in r40 testing).
+
+State: `authSession` = raw Supabase session. `currentCleaner` =
+`cleaners.find(c => c.auth_user_id === authSession.user.id)`; `isOwner` from
+its role; `session = isOwner ? authSession : null` — every money/invoice/
+calendar check in the file still keys off `session`, so it means "owner
+signed in". `openSignIn()` is now just an "Only Janna can do that" notice.
+Avatar menu = Sign out (also clears the legacy jannas_trusted_v1 /
+jannas_user_v1 localStorage keys). Recommended Supabase Auth setting:
+"Confirm email" ON, so nobody can claim a not-yet-linked team email.
 
 ## portfolio/ (not part of the app)
 Upwork portfolio screenshots (r39) taken from a fake-data preview
